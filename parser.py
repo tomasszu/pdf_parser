@@ -24,7 +24,7 @@ import opendataloader_pdf
 
 ## Create a class wrapper for the opendataloader-pdf library
 
-class PDFParser:
+class OpenDataParser:
     def __init__(self, outputs_path):
         self.outputs_path = outputs_path
         # self.pdfs = pdfs

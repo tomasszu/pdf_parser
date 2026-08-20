@@ -1,24 +1,32 @@
-from parser import PDFParser
-from cleanup_json import CleanupJSON
+# from parser import OpenDataParser
+from nu_extract_parser import NuExtractParser
 
-from split_chapters import ChapterSplitter
+from markdown_to_json import JSONMaker
 
-from chapter_chunker import ChapterChunker
+# from cleanup_json import CleanupJSON
 
-import os, json
+# from split_chapters import ChapterSplitter
+
+# from chapter_chunker import ChapterChunker
+
+# import os, json
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Lopading in the PDF file, parsing into JSON and cleaning the JSON up >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # pdf_name = "The_Shape_of_the_Fused_Spine_is_Associated_With_Acute_Proximal_Junctional_Kyphosis_in_Adult_Spinal_Deformity_An_Assessment_Based_on_Vertebral_Pelvic_Angles"
-pdf_name = "pelvic_nonresponse_following_treatment_of_adult.7"
+pdf_name = "The_Shape_of_the_Fused_Spine_is_Associated_With_Acute_Proximal_Junctional_Kyphosis_in_Adult_Spinal_Deformity_An_Assessment_Based_on_Vertebral_Pelvic_Angles"
 
 
 input_path = f"C:/Users/lenox/tomass/papers/{pdf_name}.pdf"
 # Output folder for json + figures + tables
-output_dir = f"output/{pdf_name}/"
+output_dir = f"output/{pdf_name}"
 
-parser = PDFParser(outputs_path=output_dir)
+# parser = NuExtractParser(outputs_path=f"{output_dir}/markdown")
 
-parser.parse(input_path)
+# parser.parse(input_path)
+
+json_maker = JSONMaker(outputs_path=f"{output_dir}/json")
+
+json_maker.run(inputs_folder=f"{output_dir}/markdown")
 
 # cleanup = CleanupJSON(output_dir=output_dir)
 
