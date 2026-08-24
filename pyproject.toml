@@ -9,4 +9,5 @@ dependencies = [
     "opendataloader-pdf[hybrid]>=2.5.0",
     "pymupdf>=1.28.2",
     "pypdf2>=3.0.1",
+    "wenmode>=0.14.1",
 ]

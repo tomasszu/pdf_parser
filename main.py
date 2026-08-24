@@ -3,6 +3,8 @@ from nu_extract_parser import NuExtractParser
 
 from markdown_to_json import JSONMaker
 
+from json_post_process import JSONPostProcessor
+
 # from cleanup_json import CleanupJSON
 
 # from split_chapters import ChapterSplitter
@@ -13,7 +15,7 @@ from markdown_to_json import JSONMaker
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Lopading in the PDF file, parsing into JSON and cleaning the JSON up >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # pdf_name = "The_Shape_of_the_Fused_Spine_is_Associated_With_Acute_Proximal_Junctional_Kyphosis_in_Adult_Spinal_Deformity_An_Assessment_Based_on_Vertebral_Pelvic_Angles"
-pdf_name = "The_Shape_of_the_Fused_Spine_is_Associated_With_Acute_Proximal_Junctional_Kyphosis_in_Adult_Spinal_Deformity_An_Assessment_Based_on_Vertebral_Pelvic_Angles"
+pdf_name = "pelvic_nonresponse_following_treatment_of_adult.7"
 
 
 input_path = f"C:/Users/lenox/tomass/papers/{pdf_name}.pdf"
@@ -24,9 +26,13 @@ output_dir = f"output/{pdf_name}"
 
 # parser.parse(input_path)
 
-json_maker = JSONMaker(outputs_path=f"{output_dir}/json")
+# json_maker = JSONMaker(outputs_path=f"{output_dir}/json")
 
-json_maker.run(inputs_folder=f"{output_dir}/markdown")
+# json_maker.run(inputs_folder=f"{output_dir}/markdown")
+
+postprocessor = JSONPostProcessor(outputs_path=f"{output_dir}/json")
+
+postprocessor.run(input_json=f"{output_dir}/json/combined_blocks.json")
 
 # cleanup = CleanupJSON(output_dir=output_dir)
 
