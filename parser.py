@@ -36,6 +36,6 @@ class OpenDataParser:
             output_dir=self.outputs_path,
             hybrid=mode,
             markdown_with_html=True,
-            image_dir = f"{self.outputs_path}{figures_dir}",
+            image_dir = f"{self.outputs_path}/{figures_dir}",
             format=output_format
         )

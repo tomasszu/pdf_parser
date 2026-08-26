@@ -1,76 +1,48 @@
 import json  
 import re  
-from pathlib import Path  
-from statistics import quantiles
+from pathlib import Path
 
 import tokenizer
 
 
-
-TARGET_HEADINGS = {  
-    "abstract",  
-    "intro",  
-    "introduction",  
-    "methods",  
-    "results",  
-    "discussion",  
-    "conclusion",  
-}
-
-
 class ChapterSplitter:  
     """  
-    Class to use when dealing with the entries extracted from a pdf doxument.  
+    Split extracted PDF blocks into coarse article sections using  
+    heading blocks plus paragraph-based heuristics.  
     """
 
-    def __init__(self, outputs_path: str):  
-        self.outdir = Path(f"{outputs_path}/chapters")  
-        self.outdir.mkdir(parents=True, exist_ok=True)
-
-        # Regex for paragraph headings:  
-        # first word must be one of the target headings  
-        pattern = r"^\s*(?:" + "|".join(re.escape(h) for h in sorted(TARGET_HEADINGS, key=len, reverse=True)) + r")\b"
-        self.target_heading_regex = re.compile(pattern, re.IGNORECASE)
+    def __init__(self, outputs_path: str):
+        self.outdir = Path(outputs_path) / "chapters"  
+        self.outdir.mkdir(parents=True, exist_ok=True)  
+        self.tokenizer = tokenizer
 
     def split(self, infile: str):  
         with open(infile, "r", encoding="utf-8") as f:  
-            doc = json.load(f)
+            blocks = json.load(f)
 
-        blocks = doc["kids"]
+        if not blocks:  
+            return []
 
-        if not any(isinstance(b.get("font size"), (int, float)) for b in blocks):  
-            print("Text blocks don't include font sizes - cannot execute logic. Returning.")  
-            return
+        title = self._get_document_title(blocks, infile)
 
-        font_size_threshold = self.aggregate_font_sizes(blocks)
+        # Find explicit section starts  
+        starts = []  
+        for i, block in enumerate(blocks):  
+            section = self.classify_section_start(block)  
+            if section:  
+                starts.append((i, section))
 
-        files = []  
-        current = None
+        # Add fallback abstract/introduction if needed  
+        starts = self._inject_missing_front_sections(blocks, starts)
 
-        for b in blocks[1:]:
-            heading = self.is_section_heading(b, font_size_threshold) 
-            if heading:
-                if current:  
-                    files.append(current)
+        # If still nothing useful, just dump all as one introduction  
+        if not starts:  
+            starts = [(0, "introduction")]
 
-                current = {  
-                    "document": {  
-                        "title": doc["file name"],  
-                        "sections": [{  
-                            "heading": heading,
-                            "kids": []  
-                        }]  
-                    }  
-                }
+        # Deduplicate and sort  
+        starts = self._dedupe_and_sort_starts(starts)
 
-            elif current:
-                ### can be located elsewhere, but inserted here for convenience - adding token count for each text block, since next steps include chunking
-                b["tokens"] = tokenizer.count_tokens(b.get("content", ""))
-                
-                current["document"]["sections"][0]["kids"].append(b)
-
-        if current:  
-            files.append(current)
+        files = self._build_section_files(blocks, starts, title)
 
         for i, item in enumerate(files, 1):  
             heading = item["document"]["sections"][0]["heading"]  
@@ -79,43 +51,190 @@ class ChapterSplitter:
             with open(outpath, "w", encoding="utf-8") as f:  
                 json.dump(item, f, indent=2, ensure_ascii=False)
 
-    def is_section_heading(self, block, font_size_threshold):  
+        #return files
+
+    def _get_document_title(self, blocks, infile):  
+        for b in blocks:  
+            if b.get("type") == "title" and b.get("content", "").strip():
+                return b["content"].strip()  
+        return Path(infile).stem
+
+    def classify_section_start(self, block):  
         content = block.get("content", "")  
-        normalized = self.normalize_heading(content)  
-        block_type = block.get("type")  
-        font_size = block.get("font size")
+        block_type = block.get("type")
+        page = block.get("page")
 
-        if block_type == "heading" and normalized in TARGET_HEADINGS:  
-            return normalized
+        if not content.strip():  
+            return None
 
-        if (  
-            block_type == "paragraph"  
-            and isinstance(font_size, (int, float))  
-            and font_size > font_size_threshold  
-        ):  
-            match = self.target_heading_regex.match(content)  
-            if match:  
-                matched = self.normalize_heading(match.group(0))  
-                if matched in TARGET_HEADINGS:  
-                    return matched
+        normalized = self.normalize_heading(content)
 
+        # Real headings: detect normal sections  
+        if block_type == "heading":  
+            if normalized in {"abstract"}:  
+                return "abstract"  
+            if normalized in {"intro", "introduction"}:  
+                return "introduction"  
+            if self._contains_heading_word(normalized, {"method", "methods", "methodology"}):  
+                return "methods"  
+            if self._contains_heading_word(normalized, {"result", "results"}):  
+                return "results"  
+            if self._contains_heading_word(normalized, {"discussion"}):  
+                return "discussion"  
+            if self._contains_heading_word(normalized, {"conclusion", "conclusions"}):  
+                return "conclusion"
+            if self._contains_heading_word(normalized, {"references", "bibliography"}):
+                return "references"
+
+        # Paragraph bold markers: only infer ABSTRACT  
+        if block_type == "paragraph" and page == 1:  
+            bold_lead = self._extract_bold_lead(content)  
+            if bold_lead:  
+                bold_norm = self.normalize_heading(bold_lead)  
+                if bold_norm in {  
+                    "abstract",  
+                    "purpose",  
+                    "background",  
+                    "objective",  
+                    "objectives",  
+                    "study design",  
+                    "materials and methods",  
+                    "methods",  
+                    "results",  
+                    "conclusion",  
+                    "conclusions",  
+                }:  
+                    return "abstract"
+
+        # Paragraph bold markers: only infer ABSTRACT  
+        if block_type == "paragraph" and page == 1:  
+            bold_lead = self._extract_bold_lead(content)  
+            if bold_lead:  
+                bold_norm = self.normalize_heading(bold_lead)
+                if bold_norm in {  
+                    "key words",
+                    "keywords"
+                }:  
+                    return "introduction"
+
+        return None  
+
+    def _inject_missing_front_sections(self, blocks, starts):  
+        sections_present = {section for _, section in starts}
+
+        # Find first methods index if any  
+        methods_idx = None  
+        for idx, section in sorted(starts, key=lambda x: x[0]):  
+            if section == "methods":  
+                methods_idx = idx  
+                break
+
+        if "abstract" not in sections_present and "introduction" not in sections_present:  
+            first_page_idxs = [  
+                i for i, b in enumerate(blocks)  
+                if b.get("page") == 1  
+            ]
+
+            if first_page_idxs:  
+                first_page_start = min(first_page_idxs)  
+                starts.append((first_page_start, "abstract"))
+
+            if methods_idx is not None:  
+                intro_idx = self._first_index_after_page(blocks, 1)  
+                if intro_idx is not None and intro_idx < methods_idx:  
+                    starts.append((intro_idx, "introduction"))
+
+        elif "abstract" in sections_present and "introduction" not in sections_present:  
+            if methods_idx is not None:  
+                abstract_idx = min(idx for idx, sec in starts if sec == "abstract")  
+                candidate_intro = abstract_idx + 1  
+                if candidate_intro < methods_idx:  
+                    starts.append((candidate_intro, "introduction"))
+
+        return starts
+
+    def _first_index_after_page(self, blocks, page_num):  
+        for i, b in enumerate(blocks):  
+            p = b.get("page")  
+            if isinstance(p, int) and p > page_num:  
+                return i  
         return None
 
+    def _dedupe_and_sort_starts(self, starts):  
+        # Sort by index first; if multiple labels land on same index,  
+        # keep the first one encountered.  
+        starts = sorted(starts, key=lambda x: x[0])
+        deduped = []  
+        seen_idx = set()
+
+        for idx, sec in starts:  
+            if idx in seen_idx:  
+                continue  
+            deduped.append((idx, sec))  
+            seen_idx.add(idx)
+
+        # Remove out-of-order duplicate sections later if desired.  
+        # For now, keep first occurrence of each section in reading order.
+        final = []  
+        seen_section = set()  
+        for idx, sec in deduped:  
+            if sec in seen_section:  
+                continue  
+            final.append((idx, sec))  
+            seen_section.add(sec)
+
+        return final
+
+    def _build_section_files(self, blocks, starts, title):  
+        files = []
+
+        for pos, (start_idx, section_name) in enumerate(starts):  
+            end_idx = starts[pos + 1][0] if pos + 1 < len(starts) else len(blocks)  
+            kids = []
+
+            for b in blocks[start_idx:end_idx]:  
+                item = dict(b)  
+                if self.tokenizer is not None:  
+                    item["tokens"] = self.tokenizer.count_tokens(item.get("content", ""))  
+                kids.append(item)
+
+            files.append({  
+                "document": {  
+                    "title": title,  
+                    "sections": [{  
+                        "heading": section_name,  
+                        "kids": kids  
+                    }]  
+                }  
+            })
+
+        return files
+
+    def _extract_bold_lead(self, text):  
+        """  
+        Extract leading markdown-bold label, e.g.  
+        '**Results.** some text' -> 'Results.'  
+        """  
+        m = re.match(r"^\s*\*\*(.+?)\*\*", text)  
+        if m:  
+            return m.group(1).strip()  
+        return None
+
+    def _contains_heading_word(self, normalized_text, targets):  
+        words = normalized_text.split()  
+        return any(w in targets for w in words[:3])
+
+    def _strip_md(self, text):  
+        text = re.sub(r"!\[.*?\]\(.*?\)", " ", text)  
+        text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  
+        text = text.replace("**", "").replace("__", "")  
+        text = text.replace("*", "").replace("_", "")  
+        text = re.sub(r"\s+", " ", text)  
+        return text.strip()
+
     def normalize_heading(self, text):  
+        text = self._strip_md(text)  
         text = text.lower().strip()  
         text = re.sub(r"[^a-z0-9]+", " ", text)  
-        text = re.sub(r"\s+", " ", text).strip()
-        return text
-
-    def aggregate_font_sizes(self, blocks):
-        font_sizes = [  
-            b.get("font size")  
-            for b in blocks  
-            if isinstance(b.get("font size"), (int, float))  
-        ]  
-        if len(font_sizes) >= 2:  
-            font_size_threshold = quantiles(font_sizes, n=4)[2]  
-        else:  
-            font_size_threshold = 0
-
-        return font_size_threshold
+        text = re.sub(r"\s+", " ", text).strip()  
+        return text  

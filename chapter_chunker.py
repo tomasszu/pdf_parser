@@ -24,7 +24,7 @@ class ChapterChunker:
         return int(  
             block.get("meta", {})  
                  .get("tokens", {})  
-                 .get(self.model_name, 0)  
+                 .get(self.model_name, 0)
         )
 
     def get_style_name(self, block: Dict[str, Any]) -> str:  
@@ -32,11 +32,22 @@ class ChapterChunker:
 
     def is_heading_block(self, block: Dict[str, Any]) -> bool:  
         # New structure first, old structure as fallback  
-        if block.get("type") == "heading":  
+        if block.get("type") == "heading":
+            return True
+        elif self._extract_bold_lead(block.get("content")):
             return True
 
-        style = self.get_style_name(block)  
-        return style.startswith("Heading")
+        return False
+
+    def _extract_bold_lead(self, text):  
+        """  
+        Extract leading markdown-bold label, e.g.  
+        '**Results.** some text' -> 'Results.'  
+        """  
+        m = re.match(r"^\s*\*\*(.+?)\*\*", text)  
+        if m:  
+            return m.group(1).strip()  
+        return None
 
     def is_list_paragraph(self, block: Dict[str, Any]) -> bool:  
         # Keep old behavior, but add conservative fallbacks  
@@ -97,22 +108,32 @@ class ChapterChunker:
 
             chunks.append(self.make_chunk_document(source_doc, section_heading, final_blocks))
 
-        i = 0  
-        while i < len(blocks):  
+        i = 0
+        len_b = len(blocks)
+        while i < len_b:  
             block = blocks[i]  
             block_tokens = self.get_block_tokens(block)
 
-            # If a heading appears, close current chunk first, then start a new one at the heading  
-            if self.is_heading_block(block):  
-                if current_blocks:  
-                    finalize_chunk(current_blocks)  
-                    current_blocks = []  
+            # If a heading appears, close current chunk first if needed, then start a new one at the heading (in this case needed = the next non-heading paragraph together with the heading will drive tokens over allowed limit)
+            if self.is_heading_block(block) and i + 1 < len_b:
+                ni = 1 # iterating to find the next paragraph
+                next_block = blocks[i + ni]
+                next_tokens = block_tokens
+                # iterating through blocks to skip all the headings if there are multiple in a row
+                while self.is_heading_block(next_block) and i + ni < len_b:
+                    ni = ni + 1
+                    next_tokens = next_tokens + self.get_block_tokens(next_block)
+                    next_block = blocks[i + ni]
+                # if the headings with the next non-heading block go over the allowed limit
+                if current_blocks and current_tokens + next_tokens + self.get_block_tokens(next_block) >= allowed_over:
+                    finalize_chunk(current_blocks)
+                    current_blocks = []
                     current_tokens = 0
 
-                current_blocks = [block]  
-                current_tokens = block_tokens
+                current_blocks.append(block)
+                current_tokens = current_tokens + block_tokens
 
-                if not self.is_list_paragraph(block):  
+                if not self.is_list_paragraph(block):
                     last_non_list_block = block
 
                 i += 1  
@@ -155,10 +176,10 @@ class ChapterChunker:
                 blocks=blocks,  
             )
 
-            for chunk in section_chunks:  
+            for chunk in section_chunks:
                 yield chunk
 
-    def chunk_chapter(self, chapter_json: Dict[str, Any]) -> List[Dict[str, Any]]:  
+    def chunk_chapter(self, chapter_json: Dict[str, Any]) -> List[Dict[str, Any]]:
         """  
         Return all chunks as a list.  
         """  
@@ -184,7 +205,7 @@ class ChapterChunker:
             )  
             heading_name = re.sub(r"[^A-Za-z0-9_-]+", "_", section_heading).strip("_") or "section"
 
-            outpath = outdir / f"{i:03d}_{heading_name}.json"
+            outpath = outdir / f"{heading_name}_{i:03d}.json"
 
             with open(outpath, "w", encoding="utf-8") as f:  
                 json.dump(chunk, f, indent=2, ensure_ascii=False)

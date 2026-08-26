@@ -14,7 +14,7 @@ class JSONPostProcessor:
             entries = json.load(f)
 
         entries = self._remove_header_footer_noise(entries)  
-        entries = self._remove_global_noise_paragraphs(entries)  
+        entries = self._remove_global_artifacts(entries)
         entries = self._remove_logo_figures(entries)  
         entries = self._merge_split_paragraphs(entries)
 
@@ -47,12 +47,14 @@ class JSONPostProcessor:
 
             to_remove = set()
 
-            if first_idx is not None:  
-                if self._is_header_footer_candidate(self._plain_text(page_entries[first_idx])):  
+            if first_idx is not None:
+                first_text = self._plain_text(page_entries[first_idx])
+                if self._is_header_footer_candidate(first_text) and self._word_count(first_text) < 10:
                     to_remove.add(first_idx)
 
-            if last_idx is not None and last_idx != first_idx:  
-                if self._is_header_footer_candidate(self._plain_text(page_entries[last_idx])):  
+            if last_idx is not None and last_idx != first_idx:
+                last_text = self._plain_text(page_entries[last_idx])
+                if self._is_header_footer_candidate(last_text) and self._word_count(last_text) < 10:
                     to_remove.add(last_idx)
 
             for i, entry in enumerate(page_entries):  
@@ -61,12 +63,12 @@ class JSONPostProcessor:
 
         return cleaned
 
-    def _remove_global_noise_paragraphs(self, entries):  
+    def _remove_global_artifacts(self, entries):
         cleaned = []
 
         for entry in entries:  
             if entry.get("type") == "paragraph":  
-                if self._is_global_noise_paragraph(entry.get("content", "")):  
+                if self._is_global_artifact(entry.get("content", "")):
                     continue  
             cleaned.append(entry)
 
@@ -98,6 +100,10 @@ class JSONPostProcessor:
                 merged.append(entry)  
                 i += 1  
                 continue
+            elif entry.get("content", "").lstrip().startswith("*"):
+                merged.append(entry)
+                i += 1
+                continue
 
             current_text = entry.get("content", "")
 
@@ -109,9 +115,20 @@ class JSONPostProcessor:
             j = i + 1  
             intervening = []
 
-            while j < len(entries) and entries[j].get("type") != "paragraph":  
-                intervening.append(entries[j])
-                j += 1
+            while j < len(entries):  
+                candidate = entries[j]
+
+                if candidate.get("type") != "paragraph":  
+                    intervening.append(candidate)  
+                    j += 1  
+                    continue
+
+                if candidate.get("content", "").lstrip().startswith("*"):
+                    intervening.append(candidate)  
+                    j += 1  
+                    continue
+
+                break
 
             if j < len(entries):  
                 next_entry = entries[j]  
@@ -140,7 +157,7 @@ class JSONPostProcessor:
         if not text:  
             return False
 
-        if text.endswith("-"):  
+        if text.endswith(("-", ",")):  
             return True
 
         if text.endswith((".", "!", "?")):  
@@ -169,7 +186,7 @@ class JSONPostProcessor:
         lower = content.lower()  
         if "<figcaption" in lower:  
             return False  
-        return "logo" in lower
+        return ("logo" in lower) or ("creative commons" in lower)
 
     def _plain_text(self, entry):  
         return self._strip_md(entry.get("content", "")).strip()
@@ -284,6 +301,30 @@ class JSONPostProcessor:
             return True
 
         if re.match(r"^©\s*\d{4}\b", t, flags=re.IGNORECASE):  
+            return True
+
+        if tl in {"spine", "spine deformity", "global spine journal"}:  
+            return True
+
+        return False
+
+    def _is_global_artifact(self, text):  
+        t = self._strip_md(text).strip()  
+        tl = t.lower()
+
+        if not t:  
+            return True
+
+        if re.fullmatch(r"(.)\1+", t):
+            return True
+
+        if "www." in tl or "http://" in tl or "https://" in tl:  
+            return True
+
+        if "copyright" in tl:  
+            return True
+
+        if "all rights reserved" in tl:  
             return True
 
         if tl in {"spine", "spine deformity", "global spine journal"}:  
