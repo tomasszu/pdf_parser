@@ -21,8 +21,8 @@ class NuExtractParser:
             base_url="http://localhost:1234/v1"
         )
 
-    def parse(self, pdf):
-        data_urls = self.pdf_to_png_data_urls(pdf, dpi=170)
+    def parse(self, pdf_dir):
+        data_urls = self.pdf_to_png_data_urls(pdf_dir, dpi=170)
 
         for i, data_url in enumerate(data_urls):
 

@@ -3,9 +3,15 @@ import re
 from pathlib import Path
 
 
-class JSONPostProcessor:  
-    def __init__(self, outputs_path):  
-        self.outputs_path = Path(outputs_path)
+class JSONPostProcessor:
+        
+    """
+    Aims to relieve 3 things: a) header and footer noise, b) logo images noise, c) paragraph fragmentation in case of page break or structural break.
+    """
+
+    def __init__(self, output_path):
+        self.output_path = Path(output_path)
+        self.output_folder = self.output_path.parent
 
     def run(self, input_json, output_name="combined_blocks_clean.json"):  
         input_json = Path(input_json)
@@ -18,21 +24,20 @@ class JSONPostProcessor:
         entries = self._remove_logo_figures(entries)  
         entries = self._merge_split_paragraphs(entries)
 
-        self.outputs_path.mkdir(parents=True, exist_ok=True)  
-        output_file = self.outputs_path / output_name
 
-        with output_file.open("w", encoding="utf-8") as f:  
+        self.output_folder.mkdir(parents=True, exist_ok=True)  
+
+        with self.output_path.open("w", encoding="utf-8") as f:  
             json.dump(entries, f, ensure_ascii=False, indent=2)
 
-        return entries
-
     def _remove_header_footer_noise(self, entries):  
-        pages = self._group_entries_by_page(entries)  
+        pages = self._group_entries_by_page(entries)
         cleaned = []
 
         for page_num in sorted(pages):  
             page_entries = pages[page_num]
 
+            # if is first page we look for "metadata" to clean up in the whole page
             if page_num == 1:  
                 page_entries = [  
                     e for e in page_entries  
@@ -42,11 +47,13 @@ class JSONPostProcessor:
                     )  
                 ]
 
+            # possible header and footer on this page
             first_idx = self._find_first_paragraph_index(page_entries)  
             last_idx = self._find_last_paragraph_index(page_entries)
 
             to_remove = set()
 
+            # check if truly is header / footer
             if first_idx is not None:
                 first_text = self._plain_text(page_entries[first_idx])
                 if self._is_header_footer_candidate(first_text) and self._word_count(first_text) < 10:
@@ -64,6 +71,7 @@ class JSONPostProcessor:
         return cleaned
 
     def _remove_global_artifacts(self, entries):
+        # remove "artifacts" like urls from anywhere in the document, not just 1st page or headers
         cleaned = []
 
         for entry in entries:  
@@ -89,54 +97,62 @@ class JSONPostProcessor:
 
         return cleaned
 
-    def _merge_split_paragraphs(self, entries):  
+    def _merge_split_paragraphs(self, entries):
+        # Fixes problem of paragraphs being split apart by page break or other structural breaks that were read off of paper
         merged = []  
         i = 0
 
         while i < len(entries):  
             entry = entries[i]
 
+            # Skipe tables, headings etc
             if entry.get("type") != "paragraph":  
                 merged.append(entry)  
                 i += 1  
                 continue
+            # Skip paragraphs that start with emphasis - soft heading
             elif entry.get("content", "").lstrip().startswith("*"):
                 merged.append(entry)
                 i += 1
                 continue
 
+            # get textual content of the block
             current_text = entry.get("content", "")
 
-            if not self._ends_broken(current_text) or self._word_count(current_text) <= 10:  
+            # If paragraph doesent end broken or is short(possibly a footnote)
+            if not self._ends_broken(current_text) or self._word_count(current_text) <= 10:
                 merged.append(entry)  
                 i += 1  
                 continue
 
-            j = i + 1  
+            # if we found a paragraph that ends broken - > start querying the succeeding paragraphs for a continuation.
+            j = i + 1
             intervening = []
 
             while j < len(entries):  
                 candidate = entries[j]
 
+                # dont taKE non-paragraph entries into account.
                 if candidate.get("type") != "paragraph":  
                     intervening.append(candidate)  
                     j += 1  
                     continue
 
+                # also no emphasis paragraphs
                 if candidate.get("content", "").lstrip().startswith("*"):
                     intervening.append(candidate)  
                     j += 1  
                     continue
 
-                break
+                break # we have found a simple paragraph to check if its the continuation
 
-            if j < len(entries):  
+            if j < len(entries):
                 next_entry = entries[j]  
                 next_text = next_entry.get("content", "")
 
                 if (  
                     self._starts_broken(next_text)  
-                    and self._word_count(next_text) > 10  
+                    and self._word_count(next_text) > 10  # attempt at possible header exclusion
                 ):  
                     new_entry = dict(entry)  
                     new_entry["content"] = self._join_paragraphs(current_text, next_text)  
@@ -146,12 +162,13 @@ class JSONPostProcessor:
                     continue
 
             merged.append(entry)  
-            merged.extend(intervening)  
+            merged.extend(intervening)
             i = j
 
         return merged
 
-    def _ends_broken(self, text):  
+    def _ends_broken(self, text):
+        # looking if string ends without proper punctuation 
         text = text.rstrip()
 
         if not text:  
@@ -163,9 +180,11 @@ class JSONPostProcessor:
         if text.endswith((".", "!", "?")):  
             return False
 
-        return text[-1].islower()
+        # headings might look broken, so we check that text is longer than 3 words
+        return self._word_count(text) > 3
 
-    def _starts_broken(self, text):  
+    def _starts_broken(self, text):
+        # check if text begins in lowercase
         text = text.lstrip()
 
         if not text:  
@@ -182,11 +201,12 @@ class JSONPostProcessor:
 
         return left + " " + right
 
-    def _is_logo_figure(self, content):  
+    def _is_logo_figure(self, content):
+        # remove figure entries that state that they are logos or captions or creastive commons watermark in the figure caption
         lower = content.lower()  
         if "<figcaption" in lower:  
             return False  
-        return ("logo" in lower) or ("creative commons" in lower)
+        return ("logo" in lower) or ("creative commons" in lower) or ("icon" in lower)
 
     def _plain_text(self, entry):  
         return self._strip_md(entry.get("content", "")).strip()
@@ -221,13 +241,15 @@ class JSONPostProcessor:
                 return i  
         return None
 
-    def _is_first_page_metadata(self, text):  
+    def _is_first_page_metadata(self, text):
+        # a bunch of criteria to determine if text is part of title page clutter
         t = self._strip_md(text).strip()  
         tl = t.lower()
 
         if not t:  
             return False
 
+        # Simple artifacts: journal names, loose text and pseudo-headers
         if tl in {  
             "original article",  
             "review article",  
@@ -240,16 +262,17 @@ class JSONPostProcessor:
         }:  
             return True
 
+        # Journal/proceedings vol. numbers
         if re.match(r"^\d{4},?\s*vol\.?\s*\d+\(?\d+\)?\s+\d+[–-]\d+$", t, flags=re.IGNORECASE):  
             return True
-
+        # "@ the authors" kind of signatures
         if re.match(r"^©\s*the author\(s\)\s*\d{4}$", t, flags=re.IGNORECASE):  
             return True
-
+        # clutter
         if "creative commons" in tl and "license" in tl:  
             return True
-
-        if self._is_global_noise_paragraph(t):  
+        # general clutter definitions
+        if self._is_metadata_paragraph(t):
             return True
 
         return False
@@ -261,48 +284,51 @@ class JSONPostProcessor:
         if not t:  
             return False
 
-        if re.match(r"^\d+\s+global spine journal\s+\d+\(\d+\)$", t, flags=re.IGNORECASE):  
+        # digits and "journal" anywhere in string
+        if re.match(r"^(?=.*\d)(?=.*\bjournal\b).*", t, flags=re.IGNORECASE):
             return True
 
-        if "et al" in tl:  
+        if self._is_metadata_paragraph(t):
             return True
 
-        if self._is_global_noise_paragraph(t):  
-            return True
-
+        # some sort of digits leading a string up to 8 words
         if re.match(r"^\d+\b", t) and len(t.split()) <= 8:  
             return True
 
         return False
 
-    def _is_global_noise_paragraph(self, text):  
+    def _is_metadata_paragraph(self, text):  
         t = self._strip_md(text).strip()  
         tl = t.lower()
 
         if not t:  
             return True
-
+        # structural elements like line dividers
         if re.fullmatch(r"[*•·\-_=]{3,}", t):  
             return True
 
+        # urls
         if "www." in tl or "http://" in tl or "https://" in tl:  
             return True
 
+        #urls
         if any(domain in tl for domain in [".com", ".org", ".edu", ".cn", ".gov"]):  
             return True
-
+        
+        # signoffs
         if "et al" in tl:  
             return True
 
+        # clutter
         if "copyright" in tl:  
             return True
-
+        # clutter
         if "all rights reserved" in tl:  
             return True
-
-        if re.match(r"^©\s*\d{4}\b", t, flags=re.IGNORECASE):  
+        # clutter
+        if re.match(r"^©", t, flags=re.IGNORECASE):
             return True
-
+        # journal names / pseudo-headings
         if tl in {"spine", "spine deformity", "global spine journal"}:  
             return True
 
@@ -327,7 +353,7 @@ class JSONPostProcessor:
         if "all rights reserved" in tl:  
             return True
 
-        if tl in {"spine", "spine deformity", "global spine journal"}:  
+        if tl in {"spine", "spine deformity", "global spine journal", "springer"}:
             return True
 
         return False

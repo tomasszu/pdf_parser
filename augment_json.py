@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import Dict, Any
 import shutil
 
-from typing import Dict, Any, List  
+from typing import Dict, Any, List
+
+from collections import defaultdict  
+
 
 
 import fitz # PyMuPDF
@@ -17,11 +20,12 @@ class AugmentJSON:
     Fixes the problem of parsed pdf json being imperfect.
     """
 
-    def __init__(self, output_dir: Path):
+    def __init__(self, output_dir: Path, output_file: Path):
         # output folder
         self.output_dir = output_dir
+        self.output_file = output_file
         # cropped tables images folder
-        self.tables_dir = f"{output_dir}/opendata_parser/tables"
+        self.tables_dir = f"{output_dir}/tables"
         self.tables_dir = Path(self.tables_dir)
         self.tables_dir.mkdir(parents=True, exist_ok=True)
 
@@ -55,7 +59,7 @@ class AugmentJSON:
         opendata_data["kids"] = self._reorder_figures_and_captions(opendata_data["kids"])
 
         # Write back the modified JSON  
-        with open(opendata_input_json, "w", encoding="utf-8") as f:  
+        with open(self.output_file, "w", encoding="utf-8") as f:
             json.dump(opendata_data, f, indent=2, ensure_ascii=False)
 
         # <<<<<<<<<<<<<<<<<<<<<<<<The following deals with merging the images of figures and tables into the nuextract cleaned up json.>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -245,32 +249,55 @@ class AugmentJSON:
         return (overlap_area / inner_area) >= threshold
 
     def _reorder_figures_and_captions(self, entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:  
-        """Removes duplicate images (keeping smallest ID) and matches unique figures sequentially to captions. Inserts images just before their captions.
-        
+        """  
+        Reorder figure images so that matched images appear immediately before their captions.
+
         Fixes the problem of the pdf images being in random places of the parsed json and also sometimes being duplicated
         in different locations, but referencing the same image file (model issue). Luckily we have image captions in the right places.
-        
-        """  
 
-        # 1. Extract and sort figure images by ID, de-duplicating on the fly  
-        raw_images = sorted(  
-            [e for e in entries if e.get("type") == "image" and "figures/" in e.get("source", "")],
-            key=lambda x: x.get("id", 0)  
-        )
+        Matching priority:  
+        1) captions with `linked content id`  
+        2) same page: figure number == image file number and caption/image ids are adjacent (+/- 1)  
+        3) same page: figure number == image file number, choose closest id
+
+        After selecting an image, all duplicate image entries with the same source filename  
+        are discarded globally.  
+        """
+
+        print("\n=== FIGURE MATCHING LOGS ===")
+
+
+        caption_pattern = re.compile(r"^\s*(?:Figure|Fig\.?)\s*(\d+)\b", re.IGNORECASE)  
+        image_file_pattern = re.compile(r"imageFile(\d+)\.(?:png|jpg|jpeg)$", re.IGNORECASE)
+
+        # -----------------------------  
+        # 1) Gather images and captions by page  
+        # -----------------------------  
+        images_by_page = defaultdict(list)  
+        captions_by_page = defaultdict(list)  
+        images_by_id = {}
 
         unique_images = []  
         seen_sources = set()  
         discarded_img_ids = set()
 
-        print("\n=== DEDUPLICATION & MATCHING LOGS ===")
-        for img in raw_images:  
-            source = img.get("source")  
-            if source not in seen_sources:  
-                seen_sources.add(source)  
-                unique_images.append(img)  
-            else:  
-                discarded_img_ids.add(id(img))  
-                print(f"REMOVED DUPLICATE: '{source}' (ID: {img.get('id')} on Page {img.get('page number')})")
+        for entry in entries:  
+            if entry.get("type") == "image" and "figures/" in entry.get("source", ""):  
+                page = entry.get("page number")  
+                images_by_page[page].append(entry)  
+                images_by_id[entry.get("id")] = entry
+
+            elif entry.get("type") in ("caption", "paragraph"):  
+                content = entry.get("content", "") or ""  
+                match = caption_pattern.match(content)  
+                if match:  
+                    page = entry.get("page number")  
+                    captions_by_page[page].append({  
+                        "entry": entry,  
+                        "fig_num": int(match.group(1))  
+                    })
+
+        -------------------------------------------------------------------------------------------------- te mēs beidzām
 
         # Index unique images sequentially (1-based)  
         indexed_images = {i + 1: img for i, img in enumerate(unique_images)}

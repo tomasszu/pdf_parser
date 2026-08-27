@@ -31,7 +31,7 @@ class OpenDataParser:
 
     def parse(self, pdf, mode='docling-fast', output_format="json, markdown, pdf", figures_dir = "figures"):
         # parser model call
-        return opendataloader_pdf.convert(
+        opendataloader_pdf.convert(
             input_path=[pdf],
             output_dir=self.outputs_path,
             hybrid=mode,
