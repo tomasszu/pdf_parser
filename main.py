@@ -71,7 +71,7 @@ opendata_json_path = Path(f"{opendata_outputs_dir}/{pdf_name}.json")
 
 # opendata_parser = OpenDataParser(outputs_path=opendata_outputs_dir)
 
-# opendata_parser.parse(input_pdf_dir, output_format="json")
+# opendata_parser.parse(input_pdf_dir, output_format="json, pdf")
 
 """
  2. The following JSON Augmentation deals with two separate issues:
@@ -83,29 +83,29 @@ opendata_json_path = Path(f"{opendata_outputs_dir}/{pdf_name}.json")
 """
 augmented_opendata_json = opendata_json_path.parent / f"{pdf_name}_augmented.json"
 
-augment = AugmentJSON(output_dir=opendata_outputs_dir, output_file=augmented_opendata_json)
+# augment = AugmentJSON(output_dir=opendata_outputs_dir, output_file=augmented_opendata_json)
 
-augment.run(nuext_input_json=cleaned_json_path, opendata_input_json=opendata_json_path, pdf_path=input_pdf_dir)
+# augment.run(nuext_input_json=cleaned_json_path, opendata_input_json=opendata_json_path, pdf_path=input_pdf_dir)
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Splitting the JSON file into separate files for each chapter and adding token amt to each block>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-# chapsplit = ChapterSplitter(outputs_path=output_dir)
+# chapsplit = ChapterSplitter(outputs_path=output_parent_dir)
 
-# chapsplit.split(infile=f"{output_dir}/json/combined_blocks_augmented.json")
+# chapsplit.split(infile=f"{output_parent_dir}/json/combined_blocks_augmented.json")
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Splitting the JSON file into separate files for each chapter>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-# chunker = ChapterChunker(  
-#     model_name="Qwen2.5-14B-Instruct",  
-#     token_limit=350,
-#     soft_margin=0.10,  
-# )
+chunker = ChapterChunker(  
+    model_name="Qwen2.5-14B-Instruct",  
+    token_limit=350,
+    soft_margin=0.10,  
+)
 
-# for file in os.listdir(f"output/{pdf_name}/chapters"):
-#     if file.endswith("json"):
-#         with open(f"output/{pdf_name}/chapters/{file}", "r", encoding="utf-8") as f:
-#             chapter_json = json.load(f)
-#         chunker.chunk_and_save(chapter_json, f"output/{pdf_name}/chunks")
+for file in os.listdir(f"output/{pdf_name}/chapters"):
+    if file.endswith("json"):
+        with open(f"output/{pdf_name}/chapters/{file}", "r", encoding="utf-8") as f:
+            chapter_json = json.load(f)
+        chunker.chunk_and_save(chapter_json, f"output/{pdf_name}/chunks")
 
 
 

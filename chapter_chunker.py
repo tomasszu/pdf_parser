@@ -120,7 +120,7 @@ class ChapterChunker:
                 next_block = blocks[i + ni]
                 next_tokens = block_tokens
                 # iterating through blocks to skip all the headings if there are multiple in a row
-                while self.is_heading_block(next_block) and i + ni < len_b:
+                while self.is_heading_block(next_block) and i + ni + 1 < len_b:
                     ni = ni + 1
                     next_tokens = next_tokens + self.get_block_tokens(next_block)
                     next_block = blocks[i + ni]
