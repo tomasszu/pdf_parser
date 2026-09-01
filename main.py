@@ -1,4 +1,3 @@
-from parser import OpenDataParser
 from nu_extract_parser import NuExtractParser
 
 from markdown_to_json import JSONMaker
@@ -11,14 +10,16 @@ from split_chapters import ChapterSplitter
 
 from chapter_chunker import ChapterChunker
 
+from docling_extract_figures import DoclingPdfPageProcessor
+
 import os, json
 
 from pathlib import Path
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Lopading in the PDF file, parsing into markdown then to JSON and cleaning the JSON up >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-#pdf_name = "The_Shape_of_the_Fused_Spine_is_Associated_With_Acute_Proximal_Junctional_Kyphosis_in_Adult_Spinal_Deformity_An_Assessment_Based_on_Vertebral_Pelvic_Angles"
+pdf_name = "The_Shape_of_the_Fused_Spine_is_Associated_With_Acute_Proximal_Junctional_Kyphosis_in_Adult_Spinal_Deformity_An_Assessment_Based_on_Vertebral_Pelvic_Angles"
 #pdf_name = "pelvic_nonresponse_following_treatment_of_adult.7"
-pdf_name = "Lower_Limb_Khalife"
+#pdf_name = "Lower_Limb_Khalife"
 
 input_pdf_dir = f"C:/Users/lenox/tomass/papers/{pdf_name}.pdf"
 # Output folder for json + figures + tables
@@ -56,22 +57,21 @@ cleaned_json_path = Path(f"{jsons_dir}/combined_blocks_clean.json")
 # postprocessor.run(input_json=json_file_path)
 
 """
-<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< parse separately with Opendataparser to extract images of figures and tables>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< parse separately with Docling to extract images of figures and tables>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 """
 
 """
- 1. Extracting the content (with the primary aim to get figure crops and table bbox coordinates) from the PDF to json via the OpenData PDFParser model.
- You need to have installed: pip install -U "opendataloader-pdf[hybrid]"
- You need to launch: opendataloader-pdf-hybrid --port 5002
+ 1. Extracting the content (aim to get figure and table crops from the pdf)
+ Fixes the problem of the NuExtract parsed doc not having images and tables being unreliable
 """
 
-opendata_outputs_dir = f"{output_parent_dir}/opendata_parser"
+docling_outputs_dir = f"{output_parent_dir}/docling_outputs/pages"
 
-opendata_json_path = Path(f"{opendata_outputs_dir}/{pdf_name}.json")
+docling_outputs_path = Path(docling_outputs_dir)
 
-# opendata_parser = OpenDataParser(outputs_path=opendata_outputs_dir)
+# docling_processor = DoclingPdfPageProcessor(output_dir=docling_outputs_dir)
 
-# opendata_parser.parse(input_pdf_dir, output_format="json, pdf")
+# docling_processor.process_pdf(input_pdf_path=Path(input_pdf_dir))
 
 """
  2. The following JSON Augmentation deals with two separate issues:
@@ -81,11 +81,9 @@ opendata_json_path = Path(f"{opendata_outputs_dir}/{pdf_name}.json")
     So the augumentation a) cleans up the opendata json and replaced the tables w cropped images and b) replaces the figures and tables entries in the NuExtract json with images gained from opendata json.
 
 """
-augmented_opendata_json = opendata_json_path.parent / f"{pdf_name}_augmented.json"
+augment = AugmentJSON(images_dir=docling_outputs_path)
 
-# augment = AugmentJSON(output_dir=opendata_outputs_dir, output_file=augmented_opendata_json)
-
-# augment.run(nuext_input_json=cleaned_json_path, opendata_input_json=opendata_json_path, pdf_path=input_pdf_dir)
+augment.run(nuext_input_json=cleaned_json_path)
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Splitting the JSON file into separate files for each chapter and adding token amt to each block>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
