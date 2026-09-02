@@ -4,6 +4,7 @@ import time
 from pathlib import Path  
 from typing import Optional, Tuple
 import fitz  # PyMuPDF
+from PIL import Image
 
 from docling_core.types.doc import ImageRefMode, PictureItem, TableItem, TextItem  
 from docling.datamodel.base_models import InputFormat  
@@ -174,21 +175,60 @@ class DoclingPdfPageProcessor:
         page_no: int,  
         picture_counter: int,  
     ) -> None:  
-        cap_nr = None  
-        cap = element.caption_text(document)
-
-        if cap:  
-            cap_text = self._strip_md(cap)  
-            cap_nr = self._extract_opendata_figure_number(cap_text)
+        cap_nr = self._extract_picture_caption_number(element, document)
 
         if cap_nr is not None:  
             image_path = self.output_dir / str(page_no) / "images" / f"{cap_nr}.png"  
         else:  
             image_path = self.output_dir / str(page_no) / "images" / f"no_cap_{picture_counter}.png"
 
+        image = element.get_image(document)
+        if image is None:
+            self.logger.warning(  
+                f"Skipping picture on page {page_no}: no image could be generated." 
+            )  
+            return
+        
+        w, h = image.size  
+        if w < 150 or h < 150:  
+            self.logger.warning(  
+                f"Skipping picture on page {page_no}: image too small ({w}x{h})."  
+            )  
+            return
+
         image_path.parent.mkdir(parents=True, exist_ok=True)  
         with image_path.open("wb") as fp:  
-            element.get_image(document).save(fp, "PNG")
+            image.save(fp, "PNG")
+
+    def _extract_picture_caption_number(self, element: PictureItem, document) -> Optional[int]:  
+        """  
+        Try multiple strategies to find the figure number:  
+        1. linked caption  
+        2. child text elements  
+        """  
+        cap = element.caption_text(document)
+
+        # 1. linked caption  
+        if cap:  
+            cap_text = self._strip_md(cap)  
+            cap_nr = self._extract_opendata_figure_number(cap_text)  
+            if cap_nr is not None:  
+                return cap_nr
+
+        # 2. search in children elements  
+        for child in getattr(element, "children", []):  
+            ref = getattr(child, "cref", None)  
+            if ref is None:  
+                continue
+
+            for el in getattr(document, "texts", []):  
+                if getattr(el, "self_ref", None) == ref:  
+                    text = getattr(el, "text", "")  
+                    cap_nr = self._extract_opendata_figure_number(text)  
+                    if cap_nr is not None:  
+                        return cap_nr
+
+        return None
 
     def _extract_table_caption_number(self, element: TableItem, document, prev_element) -> Optional[int]:  
         """  

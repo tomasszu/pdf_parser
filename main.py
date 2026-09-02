@@ -17,9 +17,10 @@ import os, json
 from pathlib import Path
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Lopading in the PDF file, parsing into markdown then to JSON and cleaning the JSON up >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-pdf_name = "The_Shape_of_the_Fused_Spine_is_Associated_With_Acute_Proximal_Junctional_Kyphosis_in_Adult_Spinal_Deformity_An_Assessment_Based_on_Vertebral_Pelvic_Angles"
+#pdf_name = "The_Shape_of_the_Fused_Spine_is_Associated_With_Acute_Proximal_Junctional_Kyphosis_in_Adult_Spinal_Deformity_An_Assessment_Based_on_Vertebral_Pelvic_Angles"
 #pdf_name = "pelvic_nonresponse_following_treatment_of_adult.7"
 #pdf_name = "Lower_Limb_Khalife"
+pdf_name = "optimizing_the_definition_of_proximal_junctional.7"
 
 input_pdf_dir = f"C:/Users/lenox/tomass/papers/{pdf_name}.pdf"
 # Output folder for json + figures + tables
@@ -69,21 +70,21 @@ docling_outputs_dir = f"{output_parent_dir}/docling_outputs/pages"
 
 docling_outputs_path = Path(docling_outputs_dir)
 
-# docling_processor = DoclingPdfPageProcessor(output_dir=docling_outputs_dir)
+docling_processor = DoclingPdfPageProcessor(output_dir=docling_outputs_dir)
 
-# docling_processor.process_pdf(input_pdf_path=Path(input_pdf_dir))
+docling_processor.process_pdf(input_pdf_path=Path(input_pdf_dir))
 
 """
  2. The following JSON Augmentation deals with two separate issues:
-    a.) The Opendata json is messy - harder to read: artifacts are being read off of images and saved as text entries, figures are not always psoitioned next to their captions, tables are imperfect, hence need to be replaced with cropped images of them from the pdf.
-    b.) The NuExtract json lacks actual images linked to the figures and tables are also imperfect, hence better replaced for images.
+    a.) Building mappings of the images and tables found separately in the Nuextract parsed document and the extraction with docling.
+    b.) The NuExtract json lacks actual images linked to the figures and tables are also imperfect, hence better replaced with links to images.
 
-    So the augumentation a) cleans up the opendata json and replaced the tables w cropped images and b) replaces the figures and tables entries in the NuExtract json with images gained from opendata json.
+    So the augumentation a) builds mappings and b) replaces the figures and tables entries in the NuExtract json with images gained from docling extraction.
 
 """
-augment = AugmentJSON(images_dir=docling_outputs_path)
+# augment = AugmentJSON(images_dir=docling_outputs_path)
 
-augment.run(nuext_input_json=cleaned_json_path)
+# augment.run(nuext_input_json=cleaned_json_path)
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Splitting the JSON file into separate files for each chapter and adding token amt to each block>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
@@ -93,17 +94,17 @@ augment.run(nuext_input_json=cleaned_json_path)
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Splitting the JSON file into separate files for each chapter>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-chunker = ChapterChunker(  
-    model_name="Qwen2.5-14B-Instruct",  
-    token_limit=350,
-    soft_margin=0.10,  
-)
+# chunker = ChapterChunker(  
+#     model_name="Qwen2.5-14B-Instruct",  
+#     token_limit=350,
+#     soft_margin=0.10,  
+# )
 
-for file in os.listdir(f"output/{pdf_name}/chapters"):
-    if file.endswith("json"):
-        with open(f"output/{pdf_name}/chapters/{file}", "r", encoding="utf-8") as f:
-            chapter_json = json.load(f)
-        chunker.chunk_and_save(chapter_json, f"output/{pdf_name}/chunks")
+# for file in os.listdir(f"output/{pdf_name}/chapters"):
+#     if file.endswith("json"):
+#         with open(f"output/{pdf_name}/chapters/{file}", "r", encoding="utf-8") as f:
+#             chapter_json = json.load(f)
+#         chunker.chunk_and_save(chapter_json, f"output/{pdf_name}/chunks")
 
 
 
