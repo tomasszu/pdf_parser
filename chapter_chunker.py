@@ -57,6 +57,10 @@ class ChapterChunker:
 
         return block.get("type") in {"list", "list_item"}
 
+    def is_ignorable_block(self, block: Dict[str, Any]) -> bool:  
+
+        return block.get("type") in {"html", "figure", "table"}
+
     def make_chunk_document(  
         self,  
         source_doc: Dict[str, Any],  
@@ -111,7 +115,13 @@ class ChapterChunker:
         i = 0
         len_b = len(blocks)
         while i < len_b:  
-            block = blocks[i]  
+            block = blocks[i]
+
+            # checking if its figures/tables/html elements
+            if self.is_ignorable_block(block):
+                i += 1
+                continue
+
             block_tokens = self.get_block_tokens(block)
 
             # If a heading appears, close current chunk first if needed, then start a new one at the heading (in this case needed = the next non-heading paragraph together with the heading will drive tokens over allowed limit)

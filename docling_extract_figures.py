@@ -374,10 +374,11 @@ class DoclingPdfPageProcessor:
                 unres["resolved"] = True  
                 text_match["used"] = True
 
-                self.logger.info(  
-                    f"Page {page_no}: assigned nearby text caption {text_match['self_ref']} "  
-                    f"to unresolved picture {unres['self_ref']} as figure {text_match['number']}."  
-                )
+            self.logger.info(  
+                f"Page {page_no}: assigned nearby text caption {text_match['self_ref']} "  
+                f"to unresolved picture {unres['self_ref']} as figure {text_match['number']} "  
+                f"(placement={text_match.get('placement')}, score={text_match.get('score'):.2f})."  
+            )
 
         # 3. recover caption from discarded tiny picture if possible  
         for unres in unresolved:  
@@ -534,26 +535,95 @@ class DoclingPdfPageProcessor:
             text_bbox = text_cand["bbox"]
 
             horizontal_overlap = self._horizontal_overlap_ratio(pic_bbox, text_bbox)  
-            gap = self._vertical_gap_image_to_caption(pic_bbox, text_bbox)
+            vertical_overlap = self._vertical_overlap_ratio(pic_bbox, text_bbox)
 
-            # caption should usually be below the image  
-            is_below = text_bbox.t <= pic_bbox.b + 60
+            below_gap = self._vertical_gap_if_below(pic_bbox, text_bbox)  
+            left_gap = self._horizontal_gap_if_left(pic_bbox, text_bbox)  
+            right_gap = self._horizontal_gap_if_right(pic_bbox, text_bbox)
 
-            if horizontal_overlap < 0.5:  
-                continue  
-            if gap is None or gap > 80:  
-                continue  
-            if not is_below:  
+            center_dist = self._bbox_center_distance(pic_bbox, text_bbox)
+
+            placement = None  
+            score = None
+
+            # 1. caption below image  
+            if below_gap is not None and horizontal_overlap >= 0.4:  
+                # below is the most common case, so allow a slightly better preference  
+                score_below = below_gap + 0.15 * center_dist  
+                placement = "below"  
+                score = score_below
+
+            # 2. caption on the left side  
+            if left_gap is not None and vertical_overlap >= 0.4:  
+                # side captions may be farther away, so tolerate larger gap  
+                score_left = left_gap + 0.25 * center_dist + 10  
+                if score is None or score_left < score:  
+                    placement = "left"  
+                    score = score_left
+
+            # 3. caption on the right side  
+            if right_gap is not None and vertical_overlap >= 0.4:  
+                score_right = right_gap + 0.25 * center_dist + 10  
+                if score is None or score_right < score:  
+                    placement = "right"  
+                    score = score_right
+
+            if placement is None:  
                 continue
 
-            center_dist = self._horizontal_center_distance(pic_bbox, text_bbox) or 0.0  
-            score = gap + 0.2 * center_dist
+            # hard upper bounds to avoid absurd matches  
+            if placement == "below" and below_gap > 120:  
+                continue  
+            if placement in {"left", "right"}:  
+                side_gap = left_gap if placement == "left" else right_gap  
+                if side_gap > 220:  
+                    continue
 
             if best_score is None or score < best_score:  
-                best = text_cand  
+                best = text_cand.copy()  
+                best["placement"] = placement  
+                best["score"] = score  
                 best_score = score
 
         return best
+
+    def _vertical_gap_if_below(self, image_bbox, text_bbox) -> float | None:  
+        if image_bbox is None or text_bbox is None:  
+            return None
+
+        # text below image in BOTTOMLEFT coordinates:  
+        # text top should be at or below image bottom (with a bit of tolerance)  
+        if text_bbox.t > image_bbox.b + 20:  
+            return None
+
+        return max(0.0, image_bbox.b - text_bbox.t)
+
+    def _horizontal_gap_if_left(self, image_bbox, text_bbox) -> float | None:  
+        if image_bbox is None or text_bbox is None:  
+            return None
+
+        # text must be left of image  
+        if text_bbox.r > image_bbox.l + 20:  
+            return None
+
+        return max(0.0, image_bbox.l - text_bbox.r)
+
+    def _horizontal_gap_if_right(self, image_bbox, text_bbox) -> float | None:  
+        if image_bbox is None or text_bbox is None:  
+            return None
+
+        # text must be right of image  
+        if text_bbox.l < image_bbox.r - 20:  
+            return None
+
+        return max(0.0, text_bbox.l - image_bbox.r)
+
+    def _bbox_center_distance(self, bbox1, bbox2) -> float:  
+        c1x = (bbox1.l + bbox1.r) / 2  
+        c1y = (bbox1.t + bbox1.b) / 2  
+        c2x = (bbox2.l + bbox2.r) / 2  
+        c2y = (bbox2.t + bbox2.b) / 2  
+        return ((c1x - c2x) ** 2 + (c1y - c2y) ** 2) ** 0.5
 
     def _find_caption_donor_from_discarded_picture(
         self,  

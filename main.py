@@ -27,7 +27,8 @@ logging.basicConfig(level=logging.INFO)
 #pdf_name = "pelvic_nonresponse_following_treatment_of_adult.7"
 #pdf_name = "Lower_Limb_Khalife"
 #pdf_name = "optimizing_the_definition_of_proximal_junctional.7"
-pdf_name = "posterior_ligamentous_augmentation_is_associated.9"
+#pdf_name = "posterior_ligamentous_augmentation_is_associated.9"
+pdf_name = "Post_Discharge_Lorenzen"
 
 input_pdf_dir = f"C:/Users/lenox/tomass/papers/{pdf_name}.pdf"
 # Output folder for json + figures + tables
@@ -77,9 +78,9 @@ docling_outputs_dir = f"{output_parent_dir}/docling_outputs/pages"
 
 docling_outputs_path = Path(docling_outputs_dir)
 
-docling_processor = DoclingPdfPageProcessor(output_dir=docling_outputs_dir)
+# docling_processor = DoclingPdfPageProcessor(output_dir=docling_outputs_dir)
 
-docling_processor.process_pdf(input_pdf_path=Path(input_pdf_dir))
+# docling_processor.process_pdf(input_pdf_path=Path(input_pdf_dir))
 
 """
  2. The following JSON Augmentation deals with two separate issues:
@@ -89,9 +90,9 @@ docling_processor.process_pdf(input_pdf_path=Path(input_pdf_dir))
     So the augumentation a) builds mappings and b) replaces the figures and tables entries in the NuExtract json with images gained from docling extraction.
 
 """
-# augment = AugmentJSON(images_dir=docling_outputs_path)
+augment = AugmentJSON(images_dir=docling_outputs_path)
 
-# augment.run(nuext_input_json=cleaned_json_path)
+augment.run(nuext_input_json=cleaned_json_path)
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Splitting the JSON file into separate files for each chapter and adding token amt to each block>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
