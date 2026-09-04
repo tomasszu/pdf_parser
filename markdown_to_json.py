@@ -1,6 +1,8 @@
 import json  
-import re  
+import re
 from pathlib import Path
+
+import utils
 
 
 class JSONMaker:
@@ -200,13 +202,5 @@ class JSONMaker:
         return "\n".join(block_lines), i
 
     def _word_count(self, text):  
-        plain = self._strip_md(text)  
+        plain = utils._strip_md(text)  
         return len(re.findall(r"\b\w+\b", plain))
-
-    def _strip_md(self, text):  
-        text = re.sub(r"!\[.*?\]\(.*?\)", " ", text)  
-        text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  
-        text = text.replace("**", "").replace("__", "")  
-        text = text.replace("*", "").replace("_", "")  
-        text = re.sub(r"\s+", " ", text)  
-        return text.strip()

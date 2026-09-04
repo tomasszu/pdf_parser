@@ -60,18 +60,15 @@ class NuExtractParser:
             )
 
             end = time.perf_counter()
-            try: 
-                print(response.choices[0].message.content)
-                response = response.choices[0].message.content
-
-                with open(output_file, "x", encoding="utf-8") as f:
-                    f.write(response)
-                
-                print(f"Elapsed: {(end - start) * 1e3:.3f} ms")
-                print(f"Success: Output saved to {output_file}")
-
-            except subprocess.CalledProcessError as e:
-                print(f"Error executing command: {e.stderr}")
+            try:  
+                content = response.choices[0].message.content  
+                print(content)  
+                with open(output_file, "w", encoding="utf-8") as f:  
+                    f.write(content)  
+                print(f"Elapsed: {(end - start) * 1e3:.3f} ms")  
+                print(f"Success: Output saved to {output_file}")  
+            except Exception as e:  
+                print(f"Error processing page {i}: {e}")
 
 
 

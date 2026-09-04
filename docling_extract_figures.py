@@ -6,6 +6,8 @@ from typing import Optional, Tuple
 import fitz  # PyMuPDF
 from PIL import Image
 
+import utils
+
 from docling_core.types.doc import ImageRefMode, PictureItem, TableItem, TextItem  
 from docling.datamodel.base_models import InputFormat  
 from docling.datamodel.pipeline_options import PdfPipelineOptions  
@@ -180,37 +182,6 @@ class DoclingPdfPageProcessor:
         with image_path.open("wb") as fp:  
             element.get_image(document).save(fp, "PNG")
 
-    def _save_picture_image(  
-        self,  
-        element: PictureItem,  
-        document,  
-        page_no: int,  
-        picture_counter: int,  
-    ) -> None:  
-        cap_nr = self._extract_picture_caption_number(element, document)
-
-        if cap_nr is not None:  
-            image_path = self.output_dir / str(page_no) / "images" / f"{cap_nr}.png"  
-        else:  
-            image_path = self.output_dir / str(page_no) / "images" / f"no_cap_{picture_counter}.png"
-
-        image = element.get_image(document)
-        if image is None:
-            self.logger.warning(  
-                f"Skipping picture on page {page_no}: no image could be generated." 
-            )  
-            return
-        
-        w, h = image.size  
-        if w < 150 or h < 150:  
-            self.logger.warning(  
-                f"Skipping picture on page {page_no}: image too small ({w}x{h})."  
-            )  
-            return
-
-        image_path.parent.mkdir(parents=True, exist_ok=True)  
-        with image_path.open("wb") as fp:  
-            image.save(fp, "PNG")
 
     def _collect_picture_candidate(  
         self,  
@@ -278,7 +249,7 @@ class DoclingPdfPageProcessor:
 
         # 1. linked caption  
         if cap:  
-            cap_text = self._strip_md(cap)  
+            cap_text = utils._strip_md(cap)  
             cap_data = self._extract_opendata_figure_number(cap_text)  
             if cap_data["number"] is not None:  
                 return {  
@@ -374,11 +345,11 @@ class DoclingPdfPageProcessor:
                 unres["resolved"] = True  
                 text_match["used"] = True
 
-            self.logger.info(  
-                f"Page {page_no}: assigned nearby text caption {text_match['self_ref']} "  
-                f"to unresolved picture {unres['self_ref']} as figure {text_match['number']} "  
-                f"(placement={text_match.get('placement')}, score={text_match.get('score'):.2f})."  
-            )
+                self.logger.info(  
+                    f"Page {page_no}: assigned nearby text caption {text_match['self_ref']} "  
+                    f"to unresolved picture {unres['self_ref']} as figure {text_match['number']} "  
+                    f"(placement={text_match.get('placement')}, score={text_match.get('score'):.2f})."  
+                )
 
         # 3. recover caption from discarded tiny picture if possible  
         for unres in unresolved:  
@@ -453,7 +424,7 @@ class DoclingPdfPageProcessor:
 
         for el in getattr(document, "texts", []):  
             text = getattr(el, "text", "") or ""  
-            clean_text = self._strip_md(text)
+            clean_text = utils._strip_md(text)
 
             cap_data = self._extract_opendata_figure_number(clean_text)  
             if not cap_data or cap_data["number"] is None:  
@@ -743,7 +714,8 @@ class DoclingPdfPageProcessor:
         right = bbox.r  
         top = bbox.t  
         bottom = bbox.b  
-        width = right - left  
+        width = right - left
+        # assumes bottom-left origin (y increases upward)
         height = top - bottom  
         return left, right, top, bottom, width, height
 
@@ -774,15 +746,15 @@ class DoclingPdfPageProcessor:
 
         # 1. linked caption  
         if cap:  
-            cap_text = self._strip_md(cap)  
-            cap_nr = self._extract_opendata_table_number(cap_text)  
+            cap_text = utils._strip_md(cap)  
+            cap_nr = utils._extract_opendata_table_number(cap_text)  
             if cap_nr is not None:  
                 return cap_nr
 
         # 2. search in table cells  
         for cell in element.data.table_cells:  
             text = cell.text  
-            cap_nr = self._extract_opendata_table_number(text)  
+            cap_nr = utils._extract_opendata_table_number(text)  
             if cap_nr is not None:  
                 return cap_nr
 
@@ -792,7 +764,7 @@ class DoclingPdfPageProcessor:
     def _search_for_table_caption_nr(self, preceding_element) -> Optional[int]:  
         if preceding_element and isinstance(preceding_element, TextItem):  
             text = preceding_element.text  
-            return self._extract_opendata_table_number(text)  
+            return utils._extract_opendata_table_number(text)  
         return None
 
     def get_pdf_page_count(self, file_path):
@@ -801,30 +773,3 @@ class DoclingPdfPageProcessor:
         
         # Get the page count
         return doc.page_count
-
-    def _extract_opendata_table_number(self, text: str) -> Optional[int]:  
-        text = self._strip_md(text)
-        m = re.search(  
-            r"^\s*table\s+(\d+)\b",  
-            text,  
-            flags=re.IGNORECASE,  
-        )  
-        return int(m.group(1)) if m else None
-
-    def _extract_opendata_figure_number(self, text):  
-        text = self._strip_md(text)  
-        m = re.search(  
-            r"^\s*(?:fig(?:ure)?)\.?\s*[:.]?\s*(\d+)\b",  
-            text,  
-            flags=re.IGNORECASE,  
-        )  
-        return {  
-            "number": int(m.group(1)) if m else None,  
-            "caption": text.strip() if text else None,  
-        }
-
-    def _strip_md(self, text: str) -> str:  
-        text = text.replace("**", "").replace("__", "")  
-        text = text.replace("*", "").replace("_", "")  
-        text = re.sub(r"\s+", " ", text)  
-        return text.strip()

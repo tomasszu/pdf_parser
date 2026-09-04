@@ -2,6 +2,8 @@ import json
 import re  
 from pathlib import Path
 
+import utils
+
 import tokenizer
 
 
@@ -28,7 +30,7 @@ class ChapterSplitter:
         # Find explicit section starts  
         starts = []  
         for i, block in enumerate(blocks):  
-            section = self.classify_section_start(block)  
+            section = self.classify_section_start(block)
             if section:  
                 starts.append((i, section))
 
@@ -224,16 +226,9 @@ class ChapterSplitter:
         words = normalized_text.split()  
         return any(w in targets for w in words[:3])
 
-    def _strip_md(self, text):  
-        text = re.sub(r"!\[.*?\]\(.*?\)", " ", text)  
-        text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  
-        text = text.replace("**", "").replace("__", "")  
-        text = text.replace("*", "").replace("_", "")  
-        text = re.sub(r"\s+", " ", text)  
-        return text.strip()
 
     def normalize_heading(self, text):  
-        text = self._strip_md(text)  
+        text = utils._strip_md(text)  
         text = text.lower().strip()  
         text = re.sub(r"[^a-z0-9]+", " ", text)  
         text = re.sub(r"\s+", " ", text).strip()  

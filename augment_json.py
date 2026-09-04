@@ -8,6 +8,8 @@ from typing import List, Dict, Any, Optional  , Tuple
 from collections import defaultdict
 import html as html_lib
 
+import utils
+
 import fitz  # PyMuPDF
 
 
@@ -49,18 +51,29 @@ class AugmentJSON:
 
             if e.get("type") == "figure":  
                 figure = self._extract_nuext_figure_number(cleaned_entries, i)
+                if figure is None:  
+                    print(f"[MISS] could not extract figure number at index {i}")  
+                    out.append(e)  
+                    continue
                 fig_num = figure["number"]
                 caption = figure["caption"]
+                alt_text = self._extract_alt_text(e.get("content", "") or "") ## The NuExtract generated figure descript
+
 
                 if fig_num in figure_map:  
                     e["content"] = figure_map[fig_num]
                     e["caption"] = caption
+                    e["alt_text"] = alt_text
                     print(f"[OK] matched figure {fig_num}")  
                 else:  
                     print(f"[MISS] figure {fig_num}")
 
             elif e.get("type") == "table":  
                 table = self._extract_nuext_table_number(cleaned_entries, i)
+                if table is None:  
+                    print(f"[MISS] could not extract table number at index {i}")
+                    out.append(e)  
+                    continue
                 table_num = table["number"]
                 caption = table["caption"]
 
@@ -137,7 +150,7 @@ class AugmentJSON:
         if i > 0:  
             prev = entries[i - 1]  
             if prev.get("type") == "paragraph":  
-                return self._extract_opendata_figure_number(prev.get("content", ""))
+                return utils._extract_opendata_figure_number(prev.get("content", ""))
 
         return None
 
@@ -154,9 +167,16 @@ class AugmentJSON:
         if i > 0:  
             prev = entries[i - 1]  
             if prev.get("type") == "paragraph":  
-                return self._extract_opendata_table_number(prev.get("content", ""))
+                return utils._extract_opendata_table_number(prev.get("content", ""))
 
         return None
+
+    def _extract_alt_text(self, html: str) -> Optional[str]:
+        """Grab the alt text off the original <img> tag before content is overwritten."""
+        m = re.search(r'<img\b[^>]*\balt="([^"]*)"', html, flags=re.IGNORECASE)
+        if not m:
+            return None
+        return html_lib.unescape(m.group(1)).strip() or None
 
     def build_docling_asset_maps(self, pages_dir: str | Path) -> Tuple[Dict[int, str], Dict[int, str]]:  
         """  
@@ -209,34 +229,3 @@ class AugmentJSON:
             target_map[asset_number] = rel_path
 
         return tables_map, images_map
-
-    def _extract_opendata_figure_number(self, text):  
-        text = self._strip_md(text)  
-        m = re.search(  
-            r"^\s*(?:fig(?:ure)?)\.?\s*[:.]?\s*(\d+)\b",  
-            text,  
-            flags=re.IGNORECASE,  
-        )  
-        return {  
-            "number": int(m.group(1)) if m else None,  
-            "caption": text.strip() if text else None,  
-        }
-
-
-    def _extract_opendata_table_number(self, text):  
-        text = self._strip_md(text)  
-        m = re.search(  
-            r"^\s*table\s+(\d+)\b",  
-            text,  
-            flags=re.IGNORECASE,  
-        )  
-        return {  
-            "number": int(m.group(1)) if m else None,  
-            "caption": text.strip() if text else None,  
-        }
-
-    def _strip_md(self, text):  
-        text = text.replace("**", "").replace("__", "")  
-        text = text.replace("*", "").replace("_", "")  
-        text = re.sub(r"\s+", " ", text)  
-        return text.strip()

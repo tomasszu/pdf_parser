@@ -1,6 +1,7 @@
 import json  
 import re  
 from pathlib import Path
+import utils
 
 
 class JSONPostProcessor:
@@ -76,7 +77,7 @@ class JSONPostProcessor:
 
         for entry in entries:  
             if entry.get("type") == "paragraph":  
-                if self._is_global_artifact(entry.get("content", "")):
+                if self._is_noise(entry.get("content", "")):
                     continue  
             cleaned.append(entry)
 
@@ -209,18 +210,11 @@ class JSONPostProcessor:
         return ("logo" in lower) or ("creative commons" in lower) or ("icon" in lower)
 
     def _plain_text(self, entry):  
-        return self._strip_md(entry.get("content", "")).strip()
+        return utils._strip_md(entry.get("content", "")).strip()
 
-    def _strip_md(self, text):  
-        text = re.sub(r"!\[.*?\]\(.*?\)", " ", text)  
-        text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  
-        text = text.replace("**", "").replace("__", "")  
-        text = text.replace("*", "").replace("_", "")  
-        text = re.sub(r"\s+", " ", text)  
-        return text.strip()
 
     def _word_count(self, text):  
-        plain = self._strip_md(text)  
+        plain = utils._strip_md(text)  
         return len(re.findall(r"\b\w+\b", plain))
 
     def _group_entries_by_page(self, entries):  
@@ -243,7 +237,7 @@ class JSONPostProcessor:
 
     def _is_first_page_metadata(self, text):
         # a bunch of criteria to determine if text is part of title page clutter
-        t = self._strip_md(text).strip()  
+        t = utils._strip_md(text).strip()  
         tl = t.lower()
 
         if not t:  
@@ -271,89 +265,41 @@ class JSONPostProcessor:
         # clutter
         if "creative commons" in tl and "license" in tl:  
             return True
-        # general clutter definitions
-        if self._is_metadata_paragraph(t):
+        # general noise definitions
+        if self._is_noise(t):
             return True
 
+        return False
+
+    def _is_noise(self, text):  
+        t = utils._strip_md(text).strip()
+        tl = t.lower()  
+        if not t:  
+            return True  
+        if re.fullmatch(r"[*•·\-_=]{3,}", t):  
+            return True  
+        if re.fullmatch(r"(.)\1+", t):  
+            return True  
+        if any(x in tl for x in ["www.", "http://", "https://"]):  
+            return True  
+        if any(x in tl for x in [".com", ".org", ".edu", ".cn", ".gov"]):  
+            return True  
+        if "copyright" in tl or "all rights reserved" in tl:  
+            return True  
+        if re.match(r"^©", t):  
+            return True  
+        if tl in {"spine", "spine deformity", "global spine journal", "springer"}:  
+            return True  
         return False
 
     def _is_header_footer_candidate(self, text):  
-        t = self._strip_md(text).strip()  
-        tl = t.lower()
-
-        if not t:  
-            return False
-
-        # digits and "journal" anywhere in string
-        if re.match(r"^(?=.*\d)(?=.*\bjournal\b).*", t, flags=re.IGNORECASE):
+        t = utils._strip_md(text).strip()
+        if self._is_noise(t):  
+            return True  
+        if re.match(r"^(?=.*\d)(?=.*\bjournal\b).*", t, re.IGNORECASE):  
+            return True  
+        if re.match(r"^\d+\b", t) and len(t.split()) <= 8:
             return True
-
-        if self._is_metadata_paragraph(t):
+        if re.match(r"^[A-Z][a-z]+\s+et\s+al\.?\s+\d+$", t):  
             return True
-
-        # some sort of digits leading a string up to 8 words
-        if re.match(r"^\d+\b", t) and len(t.split()) <= 8:  
-            return True
-
-        return False
-
-    def _is_metadata_paragraph(self, text):  
-        t = self._strip_md(text).strip()  
-        tl = t.lower()
-
-        if not t:  
-            return True
-        # structural elements like line dividers
-        if re.fullmatch(r"[*•·\-_=]{3,}", t):  
-            return True
-
-        # urls
-        if "www." in tl or "http://" in tl or "https://" in tl:  
-            return True
-
-        #urls
-        if any(domain in tl for domain in [".com", ".org", ".edu", ".cn", ".gov"]):  
-            return True
-        
-        # signoffs
-        if "et al" in tl:  
-            return True
-
-        # clutter
-        if "copyright" in tl:  
-            return True
-        # clutter
-        if "all rights reserved" in tl:  
-            return True
-        # clutter
-        if re.match(r"^©", t, flags=re.IGNORECASE):
-            return True
-        # journal names / pseudo-headings
-        if tl in {"spine", "spine deformity", "global spine journal"}:  
-            return True
-
-        return False
-
-    def _is_global_artifact(self, text):  
-        t = self._strip_md(text).strip()  
-        tl = t.lower()
-
-        if not t:  
-            return True
-
-        if re.fullmatch(r"(.)\1+", t):
-            return True
-
-        if "www." in tl or "http://" in tl or "https://" in tl:  
-            return True
-
-        if "copyright" in tl:  
-            return True
-
-        if "all rights reserved" in tl:  
-            return True
-
-        if tl in {"spine", "spine deformity", "global spine journal", "springer"}:
-            return True
-
         return False

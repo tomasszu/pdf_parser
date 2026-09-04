@@ -23,12 +23,12 @@ _log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Lopading in the PDF file, parsing into markdown then to JSON and cleaning the JSON up >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-#pdf_name = "The_Shape_of_the_Fused_Spine_is_Associated_With_Acute_Proximal_Junctional_Kyphosis_in_Adult_Spinal_Deformity_An_Assessment_Based_on_Vertebral_Pelvic_Angles"
+pdf_name = "The_Shape_of_the_Fused_Spine_is_Associated_With_Acute_Proximal_Junctional_Kyphosis_in_Adult_Spinal_Deformity_An_Assessment_Based_on_Vertebral_Pelvic_Angles"
 #pdf_name = "pelvic_nonresponse_following_treatment_of_adult.7"
 #pdf_name = "Lower_Limb_Khalife"
 #pdf_name = "optimizing_the_definition_of_proximal_junctional.7"
 #pdf_name = "posterior_ligamentous_augmentation_is_associated.9"
-pdf_name = "Post_Discharge_Lorenzen"
+#pdf_name = "Post_Discharge_Lorenzen"
 
 input_pdf_dir = f"C:/Users/lenox/tomass/papers/{pdf_name}.pdf"
 # Output folder for json + figures + tables
@@ -39,9 +39,9 @@ output_parent_dir = f"output/{pdf_name}"
 """
 markdown_dir = f"{output_parent_dir}/markdown"
 
-# parser = NuExtractParser(outputs_path=markdown_dir)
+parser = NuExtractParser(outputs_path=markdown_dir)
 
-# parser.parse(pdf_dir=input_pdf_dir)
+parser.parse(pdf_dir=input_pdf_dir)
 
 """
  2. Parse the model output markdowns to json blocks.
@@ -90,9 +90,9 @@ docling_outputs_path = Path(docling_outputs_dir)
     So the augumentation a) builds mappings and b) replaces the figures and tables entries in the NuExtract json with images gained from docling extraction.
 
 """
-augment = AugmentJSON(images_dir=docling_outputs_path)
+# augment = AugmentJSON(images_dir=docling_outputs_path)
 
-augment.run(nuext_input_json=cleaned_json_path)
+# augment.run(nuext_input_json=cleaned_json_path)
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Splitting the JSON file into separate files for each chapter and adding token amt to each block>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
@@ -100,7 +100,7 @@ augment.run(nuext_input_json=cleaned_json_path)
 
 # chapsplit.split(infile=f"{output_parent_dir}/json/combined_blocks_augmented.json")
 
-# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Splitting the JSON file into separate files for each chapter>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Splitting the JSON file into separate files for each chunk>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 # chunker = ChapterChunker(  
 #     model_name="Qwen2.5-14B-Instruct",  
