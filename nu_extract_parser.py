@@ -25,141 +25,167 @@ class NuExtractParser:
         text = text.lower()  
         text = unicodedata.normalize("NFKC", text)
 
-        # Remove soft hyphens  
-        text = text.replace("\u00ad", "")
+        text = text.replace("\u00ad", "")  
+        text = text.replace("–", "-").replace("—", "-").replace("−", "-")  
+        text = text.replace("'", "'").replace("\u201c", '"').replace("\u201d", '"')
 
-        # Normalize dash variants  
-        text = text.replace("–", "-").replace("—", "-").replace("−", "-")
-
-        # Normalize quotes  
-        text = text.replace("’", "'").replace("“", '"').replace("”", '"')
-
-        # Remove LaTeX commands / wrappers  
+        # Remove LaTeX BEFORE HTML so that $<0.05$ doesn't look like an HTML tag  
+        text = re.sub(r"\$[^$]*\$", " ", text)          # Remove inline LaTeX entirely  
         text = re.sub(r"\\[a-zA-Z]+", " ", text)  
-        text = text.replace("$", " ")
+        text = text.replace("$", " ")                     # Catch any remaining $
 
-        # Remove image tags entirely  
-        text = re.sub(r"<img\b[^>]*>", " ", text)
-
-        # Remove remaining HTML tags but keep content  
+        # Now safe to remove HTML/XML tags  
+        #text = re.sub(r"<img\b[^>]*>", " ", text)
+        # Replace <img> tags with their alt text (instead of discarding)  
+        text = re.sub(r'<img\b[^>]*\balt="([^"]*)"[^>]*>', r' \1 ', text)
         text = re.sub(r"<[^>]+>", " ", text)
 
         return text
 
 
-    def normalize_pdf_text_for_tokens(self, text):  
-        text = self.base_normalize_text(text)
+    def strip_boilerplate_lines(self, text):  
+        """  
+        Remove common front-matter / publisher lines that are noisy and  
+        inconsistently represented between PDF text layer and LLM output.  
+        """  
+        lines = [line.strip() for line in text.splitlines()]  
+        cleaned = []
 
-        # Safe only: fix hyphenated line wraps  
-        # e.g. multi-\ncentric -> multicentric  
+        for line in lines:  
+            low = line.lower()
+
+            if not line:  
+                cleaned.append(line)  
+                continue
+
+            # DOI line  
+            if low.startswith("https://doi.org/"):  
+                continue
+
+            # Springer/footer/logo-ish lines  
+            if low == "springer":  
+                continue
+
+            # Extended author info line  
+            if "extended author information available on the last page of the article" in low:  
+                continue
+
+            # Received/Revised/Accepted line  
+            if low.startswith("received:") or "published online:" in low:  
+                continue
+
+            # Copyright line  
+            if low.startswith("© the author"):  
+                continue
+
+            cleaned.append(line)
+
+        return "\n".join(cleaned)
+
+
+    def normalize_pdf_text(self, text):  
+        text = self.base_normalize_text(text)  
+        text = self.strip_boilerplate_lines(text)
+
+        # Safe dehyphenation only:  
+        # multi-\ncentric -> multicentric  
         text = re.sub(r"([a-z]{2,})-\s*\n\s*([a-z]{2,})", r"\1\2", text)
 
-        # Replace remaining newlines with spaces  
+        # Collapse whitespace  
         text = re.sub(r"\s+", " ", text)
 
-        # Split hyphenated compounds into words for matching  
+        # Split hyphenated compounds into words  
         text = text.replace("-", " ")
 
         return text
 
 
-    def normalize_llm_text_for_tokens(self, text):  
-        text = self.base_normalize_text(text)
-
-        # Markdown already has sane paragraph structure  
-        text = re.sub(r"\s+", " ", text)  
-        text = text.replace("-", " ")
-
-        return text
-
-
-    def extract_pdf_tokens(self, text):  
-        text = self.normalize_pdf_text_for_tokens(text)  
-        return re.findall(r"\b[a-z]{6,}\b", text)
-
-
-    def extract_llm_tokens(self, text):  
-        text = self.normalize_llm_text_for_tokens(text)  
-        return re.findall(r"\b[a-z]{6,}\b", text)
-
-
-    def normalize_pdf_text_for_chars(self, text):  
-        text = self.base_normalize_text(text)
-
-        # Only fix hyphenated wraps  
-        text = re.sub(r"([a-z]{2,})-\s*\n\s*([a-z]{2,})", r"\1\2", text)
-
-        # IMPORTANT:  
-        # Don't do any arbitrary newline-joining.  
-        # Just drop non-letters; linebreaks disappear naturally.  
-        text = re.sub(r"[^a-z]+", "", text)  
-        return text
-
-
-    def normalize_llm_text_for_chars(self, text):  
+    def normalize_llm_text(self, text):  
         text = self.base_normalize_text(text)  
-        text = re.sub(r"[^a-z]+", "", text)  
-        return text  
+        text = self.strip_boilerplate_lines(text)
 
-    def verify_extraction(  
-        self,  
-        digital_text,  
-        llm_text,  
-        token_threshold=0.85,  
-        char_threshold=0.95,  
-        debug=False,  
-    ):  
-        print("\n\n\n Digitized text:")
-        print(digital_text)
-        print("\n\n\n LLM text:")
-        print(llm_text)
+        # Collapse whitespace  
+        text = re.sub(r"\s+", " ", text)
+
+        # Split hyphenated compounds into words  
+        text = text.replace("-", " ")
+
+        return text
+
+
+    def extract_words(self, text, min_len=6):  
+        return re.findall(rf"\b[a-z]{{{min_len},}}\b", text)
+
+    def verify_extraction(self, digital_text, llm_text, threshold=0.85, debug=False):  
         """  
+        Main pass/fail metric = unique-word recall.
+
+        Also computes count recall for diagnostics only.
+
         Returns:  
-            (is_valid, token_recall, char_similarity)  
+            (is_valid, unique_recall)  
         """
 
         if not digital_text.strip():  
             print("[WARN] The PDF page has no digital text; skipping verification.")  
-            return True, 1.0, 1.0
+            return True, 1.0
 
-        pdf_tokens = self.extract_pdf_tokens(digital_text)  
-        llm_tokens = self.extract_llm_tokens(llm_text)
+        pdf_text = self.normalize_pdf_text(digital_text)  
+        llm_text = self.normalize_llm_text(llm_text)
 
-        if not pdf_tokens:  
-            return True, 1.0, 1.0
+        pdf_words = self.extract_words(pdf_text, min_len=6)  
+        llm_words = self.extract_words(llm_text, min_len=6)
 
-        # Count-based token recall  
-        pdf_counts = Counter(pdf_tokens)  
-        llm_counts = Counter(llm_tokens)
+        pdf_unique = set(pdf_words)  
+        llm_unique = set(llm_words)
 
-        matched_count = sum(min(pdf_counts[word], llm_counts[word]) for word in pdf_counts)  
+        # probe_words = [  
+        #     "angles", "available", "baseline", "different", "included",  
+        #     "interbody", "interbodies", "located", "lovecchio", "definition"  
+        # ]
+
+        # print("\n--- NORMALIZED LLM TEXT ---")  
+        # print(llm_text)
+
+        # print("\n--- LLM WORDS SAMPLE ---")  
+        # print(llm_words)
+
+        # for w in probe_words:  
+        #     print(  
+        #         f"{w}: pdf={w in pdf_unique}, llm={w in llm_unique}, "  
+        #         f"pdf_count={pdf_words.count(w)}, llm_count={llm_words.count(w)}"  
+        #     )
+
+        if not pdf_words:  
+            return True, 1.0
+
+        # Primary metric: unique-word recall  
+        pdf_unique = set(pdf_words)  
+        llm_unique = set(llm_words)
+
+        matched_unique = pdf_unique.intersection(llm_unique)  
+        unique_recall = len(matched_unique) / len(pdf_unique) if pdf_unique else 1.0
+
+        # Secondary metric: count recall (debug only)  
+        pdf_counts = Counter(pdf_words)  
+        llm_counts = Counter(llm_words)
+
+        matched_count = sum(min(pdf_counts[w], llm_counts[w]) for w in pdf_counts)  
         total_count = sum(pdf_counts.values())  
-        token_recall = matched_count / total_count if total_count else 1.0
+        count_recall = matched_count / total_count if total_count else 1.0
 
-        # Character-level similarity  
-        pdf_chars = self.normalize_pdf_text_for_chars(digital_text)  
-        llm_chars = self.normalize_llm_text_for_chars(llm_text)  
-        char_similarity = SequenceMatcher(None, pdf_chars, llm_chars).ratio() if pdf_chars else 1.0
-
-        # Missing words debug  
-        missing = []  
-        for word, count in pdf_counts.items():  
-            deficit = count - llm_counts.get(word, 0)  
-            if deficit > 0:  
-                missing.append((word, deficit))  
-        missing.sort(key=lambda x: x[1], reverse=True)
+        missing_unique = sorted(pdf_unique - llm_unique)
 
         if debug:  
-            print(f"PDF total words: {total_count}")  
-            print(f"LLM total words: {len(llm_tokens)}")  
-            print(f"Matched word count: {matched_count}")  
-            print(f"Token recall: {token_recall:.2%}")  
-            print(f"Char similarity: {char_similarity:.2%}")  
-            print(f"Top missing words: {missing[:20]}")
+            print(f"PDF unique words: {len(pdf_unique)}")  
+            print(f"LLM unique words: {len(llm_unique)}")  
+            print(f"Matched unique words: {len(matched_unique)}")  
+            print(f"Unique recall: {unique_recall:.2%}")  
+            print(f"Count recall (debug only): {count_recall:.2%}")  
+            print(f"Missing unique words (sample): {missing_unique[:30]}")
 
-        is_valid = (token_recall >= token_threshold) or (char_similarity >= char_threshold)
-
-        return is_valid, token_recall, char_similarity  
+        is_valid = unique_recall >= threshold  
+        return is_valid, unique_recall  
 
     def parse(self, pdf_dir, max_retries=3, threshold=0.85):
         print("[INFO] Beginning NuExtract markdown extraction from PDF") 
@@ -210,17 +236,12 @@ class NuExtractParser:
                     end = time.perf_counter()
 
                     # --- VERIFICATION STEP ---  
-                    is_valid, token_recall, char_similarity = self.verify_extraction(  
-                        digital_text,  
-                        content,  
-                        token_threshold=threshold,  
-                        char_threshold=0.95,  
-                        debug=True,  
+                    is_valid, token_recall = self.verify_extraction(  
+                        digital_text, content, threshold=threshold, debug=True  
                     )
 
                     print(  
-                        f"Page {i} Verification: token={token_recall:.2%}, char={char_similarity:.2%} "  
-                        f"(Required: token>={threshold:.0%} or char>=95%)"  
+                        f"Page {i} Verification Score: {token_recall:.2%} (Required: {threshold:.0%})"  
                     )
 
                     if is_valid:  
@@ -232,7 +253,7 @@ class NuExtractParser:
                     else:  
                         print(  
                             f"Warning: Page {i} failed verification "  
-                            f"(token={token_recall:.2%}, char={char_similarity:.2%}). Retrying..."  
+                            f"(Score: {token_recall:.2%}). Retrying..."
                         )
 
                 except Exception as e:  
