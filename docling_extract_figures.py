@@ -250,7 +250,7 @@ class DoclingPdfPageProcessor:
         # 1. linked caption  
         if cap:  
             cap_text = utils._strip_md(cap)  
-            cap_data = self._extract_opendata_figure_number(cap_text)  
+            cap_data = utils._extract_opendata_figure_number(cap_text)  
             if cap_data["number"] is not None:  
                 return {  
                     "number": cap_data["number"],  
@@ -271,7 +271,7 @@ class DoclingPdfPageProcessor:
             for el in getattr(document, "texts", []):  
                 if getattr(el, "self_ref", None) == ref:  
                     text = getattr(el, "text", "")  
-                    cap_data = self._extract_opendata_figure_number(text)  
+                    cap_data = utils._extract_opendata_figure_number(text)  
                     if cap_data["number"] is not None:  
                         return {  
                             "number": cap_data["number"],  
@@ -426,7 +426,7 @@ class DoclingPdfPageProcessor:
             text = getattr(el, "text", "") or ""  
             clean_text = utils._strip_md(text)
 
-            cap_data = self._extract_opendata_figure_number(clean_text)  
+            cap_data = utils._extract_opendata_figure_number(clean_text)  
             if not cap_data or cap_data["number"] is None:  
                 continue
 

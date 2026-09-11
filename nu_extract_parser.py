@@ -30,7 +30,7 @@ class NuExtractParser:
         text = text.replace("'", "'").replace("\u201c", '"').replace("\u201d", '"')
 
         # Remove LaTeX BEFORE HTML so that $<0.05$ doesn't look like an HTML tag  
-        text = re.sub(r"\$[^$]*\$", " ", text)          # Remove inline LaTeX entirely  
+        text = re.sub(r"\$[^$]*\$", " ", text)          # Remove inline LaTeX entirely
         text = re.sub(r"\\[a-zA-Z]+", " ", text)  
         text = text.replace("$", " ")                     # Catch any remaining $
 

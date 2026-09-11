@@ -6,6 +6,16 @@ import utils
 
 import tokenizer
 
+SECTION_ORDER = {
+    "abstract": 0,  
+    "introduction": 1,  
+    "methods": 2,  
+    "results": 3,  
+    "discussion": 4,  
+    "conclusion": 5,  
+    "references": 6,  
+}
+
 
 class ChapterSplitter:  
     """  
@@ -26,13 +36,20 @@ class ChapterSplitter:
             return []
 
         title = self._get_document_title(blocks, infile)
+        print("------------------JSON splitting into chapters-----------------------------------")
+        # Find abstract heading metadata first (page + level)  
+        abstract_heading_meta = self._find_abstract_heading_meta(blocks)
+        print(f"Abstract heading metadata: {abstract_heading_meta}")
 
         # Find explicit section starts  
         starts = []  
         for i, block in enumerate(blocks):  
-            section = self.classify_section_start(block)
-            if section:  
+            section = self.classify_section_start(block, abstract_heading_meta)
+            if section:
+                print(f"  Detected: idx={i} section={section} block={block.get('content','')[:50]}")
                 starts.append((i, section))
+
+        print(f"Before dedupe: {starts}") 
 
         # Add fallback abstract/introduction if needed  
         starts = self._inject_missing_front_sections(blocks, starts)
@@ -43,6 +60,8 @@ class ChapterSplitter:
 
         # Deduplicate and sort  
         starts = self._dedupe_and_sort_starts(starts)
+
+        print(f"After dedupe: {starts}")  
 
         files = self._build_section_files(blocks, starts, title)
 
@@ -55,13 +74,25 @@ class ChapterSplitter:
 
         #return files
 
+    def _find_abstract_heading_meta(self, blocks):  
+        """Return (page, level) of the explicit ABSTRACT heading block, or None."""  
+        for block in blocks:  
+            if block.get("type") == "heading":  
+                normalized = self.normalize_heading(block.get("content", ""))  
+                if normalized == "abstract":  
+                    return {  
+                        "page": block.get("page"),  
+                        "level": block.get("level", 0)  
+                    }  
+        return None
+
     def _get_document_title(self, blocks, infile):  
         for b in blocks:  
             if b.get("type") == "title" and b.get("content", "").strip():
                 return b["content"].strip()  
         return Path(infile).stem
 
-    def classify_section_start(self, block):  
+    def classify_section_start(self, block, abstract_heading_meta=None):  
         content = block.get("content", "")  
         block_type = block.get("type")
         page = block.get("page")
@@ -72,7 +103,20 @@ class ChapterSplitter:
         normalized = self.normalize_heading(content)
 
         # Real headings: detect normal sections  
-        if block_type == "heading":  
+        if block_type == "heading":
+
+            # Guard: skip headings that are subheadings within the abstract block  
+            if abstract_heading_meta is not None:
+                abstract_page = abstract_heading_meta["page"]  
+                abstract_level = abstract_heading_meta["level"]  
+                block_level = block.get("level", 0)  
+                if (  
+                    page == abstract_page  
+                    and block_level > abstract_level  
+                    and normalized != "abstract"  
+                ):  
+                    return None
+
             if normalized in {"abstract"}:  
                 return "abstract"  
             if normalized in {"intro", "introduction"}:  
@@ -162,10 +206,9 @@ class ChapterSplitter:
                 return i  
         return None
 
+
     def _dedupe_and_sort_starts(self, starts):  
-        # Sort by index first; if multiple labels land on same index,  
-        # keep the first one encountered.  
-        starts = sorted(starts, key=lambda x: x[0])
+        starts = sorted(starts, key=lambda x: x[0])  
         deduped = []  
         seen_idx = set()
 
@@ -175,15 +218,22 @@ class ChapterSplitter:
             deduped.append((idx, sec))  
             seen_idx.add(idx)
 
-        # Remove out-of-order duplicate sections later if desired.  
-        # For now, keep first occurrence of each section in reading order.
         final = []  
         seen_section = set()  
-        for idx, sec in deduped:  
-            if sec in seen_section:  
-                continue  
-            final.append((idx, sec))  
-            seen_section.add(sec)
+        highest_order_seen = -1
+
+        # conclusion detected early (in abstract) would be dropped because no methods or results preceded it, and highest_order_seen would still be at abstract level.
+        for idx, sec in deduped:
+            if sec in seen_section:
+                continue
+            sec_order = SECTION_ORDER.get(sec, 999)
+            # Only allow section if it doesn't come before what we've already seen
+            # e.g. don't allow result before introduction/methods
+            if sec_order >= SECTION_ORDER["results"] and highest_order_seen < SECTION_ORDER["methods"]:
+                continue
+            final.append((idx, sec))
+            seen_section.add(sec)  
+            highest_order_seen = sec_order
 
         return final
 

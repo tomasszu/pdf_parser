@@ -28,7 +28,9 @@ logging.basicConfig(level=logging.INFO)
 #pdf_name = "Lower_Limb_Khalife"
 #pdf_name = "optimizing_the_definition_of_proximal_junctional.7"
 #pdf_name = "posterior_ligamentous_augmentation_is_associated.9"
-pdf_name = "Post_Discharge_Lorenzen"
+#pdf_name = "Post_Discharge_Lorenzen"
+pdf_name = "PON_LT_GMM_Trajectories_FULL_DRAFT_MAY2026_v1"
+
 
 input_pdf_dir = f"C:/Users/lenox/tomass/papers/{pdf_name}.pdf"
 # Output folder for json + figures + tables
@@ -39,9 +41,9 @@ output_parent_dir = f"output/{pdf_name}"
 """
 markdown_dir = f"{output_parent_dir}/markdown"
 
-parser = NuExtractParser(outputs_path=markdown_dir)
+# parser = NuExtractParser(outputs_path=markdown_dir)
 
-parser.parse(pdf_dir=input_pdf_dir)
+# parser.parse(pdf_dir=input_pdf_dir)
 
 """
  2. Parse the model output markdowns to json blocks.
@@ -96,9 +98,9 @@ docling_outputs_path = Path(docling_outputs_dir)
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Splitting the JSON file into separate files for each chapter and adding token amt to each block>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-# chapsplit = ChapterSplitter(outputs_path=output_parent_dir)
+chapsplit = ChapterSplitter(outputs_path=output_parent_dir)
 
-# chapsplit.split(infile=f"{output_parent_dir}/json/combined_blocks_augmented.json")
+chapsplit.split(infile=f"{output_parent_dir}/json/combined_blocks_augmented.json")
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Splitting the JSON file into separate files for each chunk>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
