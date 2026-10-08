@@ -29,7 +29,8 @@ logging.basicConfig(level=logging.INFO)
 #pdf_name = "optimizing_the_definition_of_proximal_junctional.7"
 #pdf_name = "posterior_ligamentous_augmentation_is_associated.9"
 #pdf_name = "Post_Discharge_Lorenzen"
-pdf_name = "PON_LT_GMM_Trajectories_FULL_DRAFT_MAY2026_v1"
+#pdf_name = "PON_LT_GMM_Trajectories_FULL_DRAFT_MAY2026_v1"
+pdf_name = "GT_test"
 
 
 input_pdf_dir = f"C:/Users/lenox/tomass/papers/{pdf_name}.pdf"
@@ -41,9 +42,9 @@ output_parent_dir = f"output/{pdf_name}"
 """
 markdown_dir = f"{output_parent_dir}/markdown"
 
-# parser = NuExtractParser(outputs_path=markdown_dir)
+parser = NuExtractParser(outputs_path=markdown_dir)
 
-# parser.parse(pdf_dir=input_pdf_dir)
+parser.parse(pdf_dir=input_pdf_dir)
 
 """
  2. Parse the model output markdowns to json blocks.
@@ -53,9 +54,9 @@ jsons_dir = f"{output_parent_dir}/json"
 
 json_file_path = Path(f"{jsons_dir}/combined_blocks.json")
 
-# json_maker = JSONMaker(output_path=json_file_path)
+json_maker = JSONMaker(output_path=json_file_path)
 
-# json_maker.run(inputs_folder=markdown_dir)
+json_maker.run(inputs_folder=markdown_dir)
 
 """
  3. Aims to relieve 3 things: a) header and footer noise, b) logo images noise, c) paragraph fragmentation in case of page break or structural break.
@@ -63,9 +64,9 @@ json_file_path = Path(f"{jsons_dir}/combined_blocks.json")
 
 cleaned_json_path = Path(f"{jsons_dir}/combined_blocks_clean.json")
 
-# postprocessor = JSONPostProcessor(output_path=cleaned_json_path)
+postprocessor = JSONPostProcessor(output_path=cleaned_json_path)
 
-# postprocessor.run(input_json=json_file_path)
+postprocessor.run(input_json=json_file_path)
 
 """
 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< parse separately with Docling to extract images of figures and tables>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -80,9 +81,9 @@ docling_outputs_dir = f"{output_parent_dir}/docling_outputs/pages"
 
 docling_outputs_path = Path(docling_outputs_dir)
 
-# docling_processor = DoclingPdfPageProcessor(output_dir=docling_outputs_dir)
+docling_processor = DoclingPdfPageProcessor(output_dir=docling_outputs_dir)
 
-# docling_processor.process_pdf(input_pdf_path=Path(input_pdf_dir))
+docling_processor.process_pdf(input_pdf_path=Path(input_pdf_dir))
 
 """
  2. The following JSON Augmentation deals with two separate issues:
@@ -92,9 +93,9 @@ docling_outputs_path = Path(docling_outputs_dir)
     So the augumentation a) builds mappings and b) replaces the figures and tables entries in the NuExtract json with images gained from docling extraction.
 
 """
-# augment = AugmentJSON(images_dir=docling_outputs_path)
+augment = AugmentJSON(images_dir=docling_outputs_path)
 
-# augment.run(nuext_input_json=cleaned_json_path)
+augment.run(nuext_input_json=cleaned_json_path)
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Splitting the JSON file into separate files for each chapter and adding token amt to each block>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
@@ -104,17 +105,17 @@ chapsplit.split(infile=f"{output_parent_dir}/json/combined_blocks_augmented.json
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Splitting the JSON file into separate files for each chunk>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-# chunker = ChapterChunker(  
-#     model_name="Qwen2.5-14B-Instruct",  
-#     token_limit=350,
-#     soft_margin=0.10,  
-# )
+chunker = ChapterChunker(  
+    model_name="Qwen2.5-14B-Instruct",  
+    token_limit=350,
+    soft_margin=0.10,  
+)
 
-# for file in os.listdir(f"output/{pdf_name}/chapters"):
-#     if file.endswith("json"):
-#         with open(f"output/{pdf_name}/chapters/{file}", "r", encoding="utf-8") as f:
-#             chapter_json = json.load(f)
-#         chunker.chunk_and_save(chapter_json, f"output/{pdf_name}/chunks")
+for file in os.listdir(f"output/{pdf_name}/chapters"):
+    if file.endswith("json"):
+        with open(f"output/{pdf_name}/chapters/{file}", "r", encoding="utf-8") as f:
+            chapter_json = json.load(f)
+        chunker.chunk_and_save(chapter_json, f"output/{pdf_name}/chunks")
 
 
 

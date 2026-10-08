@@ -211,7 +211,7 @@ class NuExtractParser:
 
                 try:  
                     response = self.client.chat.completions.create(  
-                        model="numind/NuExtract3",  
+                        model="nuextract3@q8_0",  
                         temperature=1.0,
                         messages=[  
                             {  

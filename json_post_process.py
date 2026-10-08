@@ -280,9 +280,9 @@ class JSONPostProcessor:
             return True  
         if re.fullmatch(r"(.)\1+", t):  
             return True  
-        if any(x in tl for x in ["www.", "http://", "https://"]):  
+        if any(x in tl for x in ["www.", "http://", "https://"]) and len(tl) < 30:  
             return True  
-        if any(x in tl for x in [".com", ".org", ".edu", ".cn", ".gov"]):  
+        if any(x in tl for x in [".com", ".org", ".edu", ".cn", ".gov"]) and len(tl) < 10:
             return True  
         if "copyright" in tl or "all rights reserved" in tl:  
             return True  
