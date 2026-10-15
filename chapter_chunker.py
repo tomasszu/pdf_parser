@@ -17,7 +17,6 @@ class ChapterChunker:
         self.soft_margin = soft_margin
 
     def get_block_tokens(self, block: Dict[str, Any]) -> int:  
-        # New structure first, old structure as fallback  
         if "tokens" in block:  
             return int(block.get("tokens", {}).get(self.model_name, 0))
 
@@ -31,26 +30,15 @@ class ChapterChunker:
         return block.get("meta", {}).get("style_name", "")
 
     def is_heading_block(self, block: Dict[str, Any]) -> bool:  
-        # New structure first, old structure as fallback  
-        if block.get("type") == "heading":
-            return True
-        elif self._extract_bold_lead(block.get("content")):
-            return True
+        return block.get("type") == "heading"
 
-        return False
-
-    def _extract_bold_lead(self, text):  
-        """  
-        Extract leading markdown-bold label, e.g.  
-        '**Results.** some text' -> 'Results.'  
-        """  
-        m = re.match(r"^\s*\*\*(.+?)\*\*", text)  
-        if m:  
-            return m.group(1).strip()  
-        return None
+    def get_assigned_heading_level(self, block: Dict[str, Any]) -> Optional[int]:  
+        try:  
+            return int(block.get("assigned_level"))  
+        except (TypeError, ValueError):  
+            return None
 
     def is_list_paragraph(self, block: Dict[str, Any]) -> bool:  
-        # Keep old behavior, but add conservative fallbacks  
         style = self.get_style_name(block)  
         if style == "List Paragraph":  
             return True
@@ -58,7 +46,6 @@ class ChapterChunker:
         return block.get("type") in {"list", "list_item"}
 
     def is_ignorable_block(self, block: Dict[str, Any]) -> bool:  
-
         return block.get("type") in {"html", "figure", "table"}
 
     def make_chunk_document(  
@@ -88,9 +75,6 @@ class ChapterChunker:
         section_heading: str,  
         blocks: List[Dict[str, Any]],  
     ) -> List[Dict[str, Any]]:  
-        """  
-        Chunk a single section into multiple chapter-shaped JSON chunks.  
-        """  
         allowed_over = int(self.token_limit * (1.0 + self.soft_margin))
 
         chunks: List[Dict[str, Any]] = []  
@@ -99,52 +83,102 @@ class ChapterChunker:
 
         last_non_list_block: Optional[Dict[str, Any]] = None
 
+        heading_stack: List[Dict[str, Any]] = []  
+        heading_stack_levels: List[int] = []  
+        chunk_heading_prefix: List[Dict[str, Any]] = []
+
+        def update_heading_stack(block: Dict[str, Any]):  
+            assigned_level = self.get_assigned_heading_level(block)  
+            if assigned_level is None:  
+                return
+
+            while heading_stack_levels and heading_stack_levels[-1] >= assigned_level:  
+                heading_stack.pop()  
+                heading_stack_levels.pop()
+
+            heading_stack.append(deepcopy(block))  
+            heading_stack_levels.append(assigned_level)
+
+        def get_prefix_for_block_start(block: Dict[str, Any]) -> List[Dict[str, Any]]:  
+            prefix_stack = deepcopy(heading_stack)  
+            prefix_levels = list(heading_stack_levels)
+
+            if self.is_heading_block(block):  
+                incoming_level = self.get_assigned_heading_level(block)  
+                if incoming_level is not None:  
+                    while prefix_levels and prefix_levels[-1] >= incoming_level:  
+                        prefix_stack.pop()  
+                        prefix_levels.pop()
+
+            return prefix_stack
+
         def finalize_chunk(chunk_blocks: List[Dict[str, Any]]):  
             if not chunk_blocks:  
                 return
 
-            final_blocks = chunk_blocks
+            final_blocks = list(chunk_blocks)  
+            prefix_blocks: List[Dict[str, Any]] = []
 
-            # If the chunk starts with a list paragraph, prepend the last non-list block  
+            for idx, hb in enumerate(chunk_heading_prefix):  
+                if idx < len(final_blocks):  
+                    same_type = final_blocks[idx].get("type") == hb.get("type")  
+                    same_content = final_blocks[idx].get("content") == hb.get("content")  
+                    if same_type and same_content:  
+                        continue  
+                prefix_blocks.append(deepcopy(hb))
+
+            final_blocks = prefix_blocks + final_blocks
+
             if final_blocks and self.is_list_paragraph(final_blocks[0]) and last_non_list_block is not None:  
-                if final_blocks[0].get("id") != last_non_list_block.get("id"):  
+                duplicate = (  
+                    final_blocks[0].get("id") == last_non_list_block.get("id")  
+                    if final_blocks[0].get("id") is not None and last_non_list_block.get("id") is not None  
+                    else final_blocks[0].get("content") == last_non_list_block.get("content")  
+                )  
+                if not duplicate:  
                     final_blocks = [deepcopy(last_non_list_block)] + final_blocks
 
             chunks.append(self.make_chunk_document(source_doc, section_heading, final_blocks))
 
-        i = 0
+        i = 0  
         len_b = len(blocks)
+
         while i < len_b:  
             block = blocks[i]
 
-            # checking if its figures/tables/html elements
-            if self.is_ignorable_block(block):
-                i += 1
+            pre_block_heading_stack = get_prefix_for_block_start(block)
+
+            if self.is_ignorable_block(block):  
+                i += 1  
                 continue
 
             block_tokens = self.get_block_tokens(block)
 
-            # If a heading appears, close current chunk first if needed, then start a new one at the heading (in this case needed = the next non-heading paragraph together with the heading will drive tokens over allowed limit)
-            if self.is_heading_block(block) and i + 1 < len_b:
-                ni = 1 # iterating to find the next paragraph
-                next_block = blocks[i + ni]
+            if self.is_heading_block(block) and i + 1 < len_b:  
+                ni = 1  
+                next_block = blocks[i + ni]  
                 next_tokens = block_tokens
-                # iterating through blocks to skip all the headings if there are multiple in a row
-                while self.is_heading_block(next_block) and i + ni + 1 < len_b:
-                    ni = ni + 1
-                    next_tokens = next_tokens + self.get_block_tokens(next_block)
+
+                while self.is_heading_block(next_block) and i + ni + 1 < len_b:  
+                    ni += 1  
+                    next_tokens += self.get_block_tokens(next_block)  
                     next_block = blocks[i + ni]
-                # if the headings with the next non-heading block go over the allowed limit
-                if current_blocks and current_tokens + next_tokens + self.get_block_tokens(next_block) >= allowed_over:
-                    finalize_chunk(current_blocks)
-                    current_blocks = []
+
+                if current_blocks and current_tokens + next_tokens + self.get_block_tokens(next_block) >= allowed_over:  
+                    finalize_chunk(current_blocks)  
+                    current_blocks = []  
                     current_tokens = 0
 
-                current_blocks.append(block)
-                current_tokens = current_tokens + block_tokens
+                if not current_blocks:  
+                    chunk_heading_prefix = deepcopy(pre_block_heading_stack)
 
-                if not self.is_list_paragraph(block):
-                    last_non_list_block = block
+                current_blocks.append(deepcopy(block))  
+                current_tokens += block_tokens
+
+                if not self.is_list_paragraph(block):  
+                    last_non_list_block = deepcopy(block)
+
+                update_heading_stack(block)
 
                 i += 1  
                 continue
@@ -153,14 +187,20 @@ class ChapterChunker:
 
             if current_blocks and prospective_tokens > allowed_over:  
                 finalize_chunk(current_blocks)  
-                current_blocks = [block]  
-                current_tokens = block_tokens  
-            else:  
-                current_blocks.append(block)  
-                current_tokens = prospective_tokens
+                current_blocks = []  
+                current_tokens = 0
+
+            if not current_blocks:  
+                chunk_heading_prefix = deepcopy(pre_block_heading_stack)
+
+            current_blocks.append(deepcopy(block))  
+            current_tokens += block_tokens
 
             if not self.is_list_paragraph(block):  
-                last_non_list_block = block
+                last_non_list_block = deepcopy(block)
+
+            if self.is_heading_block(block):  
+                update_heading_stack(block)
 
             i += 1
 
@@ -170,9 +210,6 @@ class ChapterChunker:
         return chunks
 
     def iter_chunks(self, chapter_json: Dict[str, Any]) -> Iterator[Dict[str, Any]]:  
-        """  
-        Yield chunks one at a time.  
-        """  
         doc = chapter_json["document"]  
         sections = doc.get("sections", [])
 
@@ -186,20 +223,13 @@ class ChapterChunker:
                 blocks=blocks,  
             )
 
-            for chunk in section_chunks:
+            for chunk in section_chunks:  
                 yield chunk
 
-    def chunk_chapter(self, chapter_json: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """  
-        Return all chunks as a list.  
-        """  
+    def chunk_chapter(self, chapter_json: Dict[str, Any]) -> List[Dict[str, Any]]:  
         return list(self.iter_chunks(chapter_json))
 
     def chunk_and_save(self, chapter_json: Dict[str, Any], output_dir: str) -> List[Path]:  
-        """  
-        Chunk a chapter JSON and save all chunks into output_dir.  
-        Returns the list of written file paths.  
-        """  
         outdir = Path(output_dir)  
         outdir.mkdir(parents=True, exist_ok=True)
 
@@ -222,4 +252,4 @@ class ChapterChunker:
 
             written_paths.append(outpath)
 
-        return written_paths  
+        return written_paths

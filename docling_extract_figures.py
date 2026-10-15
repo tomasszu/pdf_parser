@@ -2,8 +2,10 @@ import logging
 import re  
 import time  
 from pathlib import Path  
-from typing import Optional, Tuple
-import fitz  # PyMuPDF
+from typing import Optional, Union
+import json
+
+import fitz  # PyMuPDF  
 from PIL import Image
 
 import utils
@@ -13,7 +15,6 @@ from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions  
 from docling.document_converter import DocumentConverter, PdfFormatOption
 
-
 _log = logging.getLogger(__name__)
 
 
@@ -22,15 +23,17 @@ class DoclingPdfPageProcessor:
         self,  
         output_dir: str | Path,  
         image_resolution_scale: float = 2.0,  
-        generate_page_images: bool = True,
+        generate_page_images: bool = True,  
         generate_picture_images: bool = True,  
-        logger: Optional[logging.Logger] = None 
+        save_parsed_json: bool = False,
+        logger: Optional[logging.Logger] = None,  
     ):  
         self.output_dir = Path(output_dir).resolve()  
         self.image_resolution_scale = image_resolution_scale  
         self.generate_page_images = generate_page_images  
         self.generate_picture_images = generate_picture_images  
-        self.logger = logger or _log
+        self.save_parsed_json = save_parsed_json  
+        self.logger = logger or _log  
         self.doc_converter = self._build_converter()
 
     def _build_converter(self) -> DocumentConverter:  
@@ -50,10 +53,16 @@ class DoclingPdfPageProcessor:
         input_pdf_path: str | Path,  
         start_page: Optional[int] = None,  
         end_page: Optional[int] = None,  
-        save_json_per_page: bool = False,  
+        save_json_per_page: Optional[bool] = True,
     ) -> None:  
         """  
-        Process a PDF one page at a time from start_page to end_page inclusive.  
+        Process a PDF one page at a time from start_page to end_page inclusive.
+
+        Args:  
+            input_pdf_path: Path to input PDF.  
+            start_page: 1-based first page to process.  
+            end_page: 1-based last page to process.  
+            save_json_per_page: If provided, overrides self.save_parsed_json.  
         """
 
         input_pdf_path = Path(input_pdf_path).resolve()  
@@ -68,8 +77,11 @@ class DoclingPdfPageProcessor:
         if end_page is None:  
             end_page = total_pages
 
+        if save_json_per_page is None:  
+            save_json_per_page = self.save_parsed_json
+
         if start_page < 1:  
-                    raise ValueError(f"start_page must be >= 1, got {start_page}")  
+            raise ValueError(f"start_page must be >= 1, got {start_page}")  
         if end_page > total_pages:  
             raise ValueError(  
                 f"end_page ({end_page}) exceeds total pages in PDF ({total_pages})"  
@@ -90,24 +102,32 @@ class DoclingPdfPageProcessor:
                     input_pdf_path=input_pdf_path,  
                     page_no=page_no,  
                     save_json=save_json_per_page,  
-                )
+                )  
             except Exception as e:  
                 self.logger.exception(f"Failed to process page {page_no}: {e}")
 
         elapsed = time.time() - overall_start  
         self.logger.info(f"Finished processing PDF in {elapsed:.2f} seconds.")
 
-    def process_single_page(
+    def process_single_page(  
         self,  
         input_pdf_path: str | Path,  
         page_no: int,  
-        save_json: bool = False,
+        save_json: Optional[bool] = None,  
     ) -> None:  
         """  
-        Convert and process exactly one page.  
+        Convert and process exactly one page.
+
+        Args:  
+            input_pdf_path: Path to input PDF.  
+            page_no: 1-based page number.  
+            save_json: If provided, overrides self.save_parsed_json for this call.  
         """
 
-        self.logger.info(f"\n=== Docling processing page {page_no} ===\n")
+        if save_json is None:  
+            save_json = self.save_parsed_json
+
+        self.logger.info(f"\n=== Docling processing page {page_no} ===\n")  
         input_pdf_path = Path(input_pdf_path).resolve()
 
         start_time = time.time()
@@ -156,32 +176,36 @@ class DoclingPdfPageProcessor:
         )
 
         if save_json:  
-            json_path = self.output_dir / str(page_no) / f"{doc_filename}-page-{page_no}.json"  
-            json_path.parent.mkdir(parents=True, exist_ok=True)  
-            conv_res.document.save_as_json(json_path, image_mode=ImageRefMode.REFERENCED)
+            json_path = self.output_dir / str(page_no) / f"page_{page_no}.json"
+            json_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with json_path.open("w", encoding="utf-8") as fp:  
+                json.dump(conv_res.document.export_to_dict(), fp, indent=2, ensure_ascii=False)
+
+            self.logger.info(f"Saved exported page JSON for page {page_no} to {json_path}")
 
         elapsed = time.time() - start_time  
-        self.logger.info(f"Page {page_no} processed in {elapsed:.2f} seconds.")  
+        self.logger.info(f"Page {page_no} processed in {elapsed:.2f} seconds.")
 
-    def _save_table_image(  
-        self,  
-        element: TableItem,  
-        document,  
-        page_no: int,  
-        table_counter: int,  
-        prev_element,  
-    ) -> None:  
+    def _save_table_image(    
+        self,    
+        element: TableItem,    
+        document,    
+        page_no: int,    
+        table_counter: int,    
+        prev_element,    
+    ) -> None:    
+        # Guaranteed to be None, an int (e.g., 1), or a sanitized string (e.g., "Variable")  
         cap_nr = self._extract_table_caption_number(element, document, prev_element)
 
-        if cap_nr is not None:  
-            image_path = self.output_dir / str(page_no) / "tables" / f"{cap_nr}.png"  
-        else:  
+        if cap_nr is not None:    
+            image_path = self.output_dir / str(page_no) / "tables" / f"{cap_nr}.png"    
+        else:    
             image_path = self.output_dir / str(page_no) / "tables" / f"no_cap_{table_counter}.png"
 
-        image_path.parent.mkdir(parents=True, exist_ok=True)  
-        with image_path.open("wb") as fp:  
+        image_path.parent.mkdir(parents=True, exist_ok=True)    
+        with image_path.open("wb") as fp:    
             element.get_image(document).save(fp, "PNG")
-
 
     def _collect_picture_candidate(  
         self,  
@@ -230,11 +254,11 @@ class DoclingPdfPageProcessor:
             "skip_reason": skip_reason,  
             "used_in_merge": False,  
             "used_caption_ref": None,  
-        }  
+        }
 
     def _extract_picture_caption_data(self, element: PictureItem, document) -> dict:  
         """  
-        Try multiple strategies to find the figure caption data:
+        Try multiple strategies to find the figure caption data:  
         1. linked caption  
         2. child text elements
 
@@ -242,12 +266,11 @@ class DoclingPdfPageProcessor:
             {  
                 "number": int | None,  
                 "caption": str | None,  
-                "source": str | None,   # linked_caption | child_text | None  
+                "source": str | None,  
             }  
         """  
         cap = element.caption_text(document)
 
-        # 1. linked caption  
         if cap:  
             cap_text = utils._strip_md(cap)  
             cap_data = utils._extract_opendata_figure_number(cap_text)  
@@ -258,7 +281,6 @@ class DoclingPdfPageProcessor:
                     "source": "linked_caption",  
                 }
 
-        # 2. search in children elements  
         for child in getattr(element, "children", []):  
             ref = getattr(child, "cref", None)  
             if ref is None:  
@@ -284,6 +306,8 @@ class DoclingPdfPageProcessor:
             "caption": None,  
             "source": None,  
         }
+
+    # ... keep the rest of your methods unchanged ...  
 
 
     def _finalize_page_pictures(self, picture_candidates: list[dict], document, page_no: int) -> None:  
@@ -733,33 +757,64 @@ class DoclingPdfPageProcessor:
 
         overlap = max(0, min(r1, r2) - max(l1, l2))  
         denom = min(w1, w2)  
-        return overlap / denom if denom > 0 else 0.0  
+        return overlap / denom if denom > 0 else 0.0
 
-    def _extract_table_caption_number(self, element: TableItem, document, prev_element) -> Optional[int]:  
+    def _resolve_table_identifier(self, cap_data) -> Optional[Union[int, str]]:  
         """  
-        Try multiple strategies to find the table number:  
-        1. linked caption  
-        2. table cell content  
-        3. preceding text element  
+        Safely extracts an integer table number or a sanitized caption string   
+        from the extracted caption data.  
         """  
+        if not cap_data:  
+            return None
+
+        # If it's the dictionary returned by utils._extract_opendata_table_number  
+        if isinstance(cap_data, dict):  
+            if cap_data.get("number") is not None:  
+                return cap_data["number"]  
+              
+            if cap_data.get("caption"):  
+                # Replace invalid Windows chars and spaces with underscores  
+                safe_caption = re.sub(r'[\\/*?:"<>| ]', '_', cap_data["caption"])  
+                # Limit length to 50 characters to avoid "path too long" errors  
+                return safe_caption[:50].strip("_")  
+            return None
+
+        # If the result is already a string (e.g., from _search_for_table_caption_nr)  
+        if isinstance(cap_data, str):  
+            safe_str = re.sub(r'[\\/*?:"<>| ]', '_', cap_data)  
+            return safe_str[:50].strip("_")
+
+        # If it's already an integer or other simple type  
+        return cap_data
+
+    def _extract_table_caption_number(self, element: TableItem, document, prev_element) -> Optional[Union[int, str]]:    
+        """    
+        Try multiple strategies to find the table number:    
+        1. linked caption    
+        2. table cell content    
+        3. preceding text element    
+        """    
         cap = element.caption_text(document)
 
-        # 1. linked caption  
-        if cap:  
-            cap_text = utils._strip_md(cap)  
-            cap_nr = utils._extract_opendata_table_number(cap_text)  
-            if cap_nr is not None:  
-                return cap_nr
+        # 1. linked caption    
+        if cap:    
+            cap_text = utils._strip_md(cap)    
+            cap_data = utils._extract_opendata_table_number(cap_text)    
+            resolved = self._resolve_table_identifier(cap_data)  
+            if resolved is not None:    
+                return resolved
 
-        # 2. search in table cells  
-        for cell in element.data.table_cells:  
-            text = cell.text  
-            cap_nr = utils._extract_opendata_table_number(text)  
-            if cap_nr is not None:  
-                return cap_nr
+        # 2. search in table cells    
+        for cell in element.data.table_cells:    
+            text = cell.text    
+            cap_data = utils._extract_opendata_table_number(text)    
+            resolved = self._resolve_table_identifier(cap_data)  
+            if resolved is not None:    
+                return resolved
 
-        # 3. search in preceding element  
-        return self._search_for_table_caption_nr(prev_element)
+        # 3. search in preceding element    
+        preceding_res = self._search_for_table_caption_nr(prev_element)  
+        return self._resolve_table_identifier(preceding_res)
 
     def _search_for_table_caption_nr(self, preceding_element) -> Optional[int]:  
         if preceding_element and isinstance(preceding_element, TextItem):  

@@ -31,45 +31,48 @@ class JSONPostProcessor:
         with self.output_path.open("w", encoding="utf-8") as f:  
             json.dump(entries, f, ensure_ascii=False, indent=2)
 
-    def _remove_header_footer_noise(self, entries):  
-        pages = self._group_entries_by_page(entries)
+    def _remove_header_footer_noise(self, entries):    
+        pages = self._group_entries_by_page(entries)  
         cleaned = []
 
-        for page_num in sorted(pages):  
+        for page_num in sorted(pages):    
             page_entries = pages[page_num]
 
-            # if is first page we look for "metadata" to clean up in the whole page
-            if page_num == 1:  
-                page_entries = [  
-                    e for e in page_entries  
-                    if not (  
-                        e.get("type") == "paragraph"  
-                        and self._is_first_page_metadata(self._plain_text(e))  
-                    )  
+            # if is first page we look for "metadata" to clean up in the whole page  
+            if page_num == 1:    
+                page_entries = [    
+                    e for e in page_entries    
+                    if not (    
+                        e.get("type") == "paragraph"    
+                        and self._is_first_page_metadata(self._plain_text(e))    
+                    )    
                 ]
 
-            # possible header and footer on this page
-            first_idx = self._find_first_paragraph_index(page_entries)  
-            last_idx = self._find_last_paragraph_index(page_entries)
+            # only consider contiguous paragraph blocks at the page edges  
+            header_candidate_idxs = self._leading_paragraph_indices(page_entries, max_scan=3)  
+            footer_candidate_idxs = self._trailing_paragraph_indices(page_entries, max_scan=3)
 
             to_remove = set()
 
-            # check if truly is header / footer
-            if first_idx is not None:
-                first_text = self._plain_text(page_entries[first_idx])
-                if self._is_header_footer_candidate(first_text) and self._word_count(first_text) < 10:
-                    to_remove.add(first_idx)
+            # check header-side candidates  
+            for idx in header_candidate_idxs:  
+                text = self._plain_text(page_entries[idx])  
+                if self._is_header_footer_candidate(text) and self._word_count(text) < 10:  
+                    to_remove.add(idx)
 
-            if last_idx is not None and last_idx != first_idx:
-                last_text = self._plain_text(page_entries[last_idx])
-                if self._is_header_footer_candidate(last_text) and self._word_count(last_text) < 10:
-                    to_remove.add(last_idx)
+            # check footer-side candidates  
+            for idx in footer_candidate_idxs:  
+                if idx in to_remove:  
+                    continue  
+                text = self._plain_text(page_entries[idx])  
+                if self._is_header_footer_candidate(text) and self._word_count(text) < 10:  
+                    to_remove.add(idx)
 
-            for i, entry in enumerate(page_entries):  
-                if i not in to_remove:  
+            for i, entry in enumerate(page_entries):    
+                if i not in to_remove:    
                     cleaned.append(entry)
 
-        return cleaned
+        return cleaned  
 
     def _remove_global_artifacts(self, entries):
         # remove "artifacts" like urls from anywhere in the document, not just 1st page or headers
@@ -223,17 +226,36 @@ class JSONPostProcessor:
             pages.setdefault(entry.get("page"), []).append(entry)  
         return pages
 
-    def _find_first_paragraph_index(self, page_entries):  
-        for i, entry in enumerate(page_entries):  
-            if entry.get("type") == "paragraph":  
-                return i  
-        return None
+    def _leading_paragraph_indices(self, page_entries, max_scan=3):  
+        """  
+        Return paragraph indices from the start of the page, but only while they are  
+        contiguous paragraphs. If the very first entry is not a paragraph, return [].  
+        """  
+        indices = []  
+        limit = min(max_scan, len(page_entries))
 
-    def _find_last_paragraph_index(self, page_entries):  
-        for i in range(len(page_entries) - 1, -1, -1):  
-            if page_entries[i].get("type") == "paragraph":  
-                return i  
-        return None
+        for i in range(limit):  
+            if page_entries[i].get("type") != "paragraph":  
+                break  
+            indices.append(i)
+
+        return indices
+
+
+    def _trailing_paragraph_indices(self, page_entries, max_scan=3):  
+        """  
+        Return paragraph indices from the end of the page, but only while they are  
+        contiguous paragraphs. If the very last entry is not a paragraph, return [].  
+        """  
+        indices = []  
+        start = max(0, len(page_entries) - max_scan)
+
+        for i in range(len(page_entries) - 1, start - 1, -1):  
+            if page_entries[i].get("type") != "paragraph":  
+                break  
+            indices.append(i)
+
+        return indices
 
     def _is_first_page_metadata(self, text):
         # a bunch of criteria to determine if text is part of title page clutter
